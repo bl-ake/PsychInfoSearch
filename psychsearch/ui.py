@@ -190,9 +190,13 @@ def read_log(path: Path) -> list[dict]:
 
 class Session:
     def __init__(self, state: list[dict], backends: list[Backend], opts: SearchOptions, known_ids: list[str],
-                 log: Log, terms_path: Path | None, settings: dict):
+                 log: Log, terms_path: Path | None, settings: dict, pool: list[Backend] | None = None):
         self.state = state
         self.backends = backends
+        # databases the page's dropdown can switch to (one at a time); the starting ones are always included
+        found = {b.name: b for b in [*backends, *(pool or [])]}
+        order = ["ebscohost", "pubmed", "eric"]
+        self.pool = {n: found[n] for n in sorted(found, key=lambda n: order.index(n) if n in order else len(order))}
         self.opts = opts
         self.known_ids = known_ids
         self.known: dict[str, KnownSet] = {}
@@ -283,6 +287,7 @@ class Session:
                 "backends": [{"name": b.name, "label": b.label,
                               "remaining": b.max_searches - b.searches if hasattr(b, "max_searches") else None}
                              for b in self.backends],
+                "databases": [{"name": b.name, "label": b.label} for b in self.pool.values()],
                 "autorun": not any(b.name == "ebscohost" for b in self.backends),
                 "runs": [{"n": n, "summary": self.log.get(n)["summary"], "time": self.log.get(n)["time"]} for n in sorted(self.runs)],
                 "latest": self.latest_run(),
@@ -317,6 +322,21 @@ class Session:
                 raise
             self.log.add(kind, summary, **data, strategy=strategy_text(self.state))
 
+    def _switch_database(self, name: str) -> tuple[str, dict]:
+        """Search one other database from now on. Results from the old one stay in the log but no longer count
+        as runs to compare against."""
+        if name not in self.pool:
+            raise UIError(f"unknown database {name!r}")
+        if self.job.get("running"):
+            raise UIError("a search is running; wait for it to finish before switching database")
+        backend = self.pool[name]
+        if [b.name for b in self.backends] != [name]:
+            self.backends = [backend]
+            self.memo, self.runs, self.analysis, self.known = {}, {}, {}, {}
+            self.pinned, self.ready = None, False
+        self.settings["backends"] = [backend.label]
+        return f"Switched database to {backend.label}", {"database": name}
+
     def _block(self, action: dict) -> dict:
         index = action.get("block")
         if not isinstance(index, int) or not 0 <= index < len(self.state):
@@ -330,6 +350,8 @@ class Session:
         return block["terms"][index]
 
     def _apply(self, kind: str, action: dict) -> tuple[str, dict]:
+        if kind == "switch database":
+            return self._switch_database(str(action.get("name", "")))
         if kind == "add term":
             block = self._block(action)
             text = _clean_term(str(action.get("text", "")))
@@ -678,7 +700,7 @@ def _parser() -> argparse.ArgumentParser:
         "what each change does to the results. Every action and result is logged.",
     )
     parser.add_argument("terms", nargs="?", type=Path, help="terms file to start from ('?' candidates start switched off)")
-    parser.add_argument("-b", "--backends", default="pubmed,openalex", help="comma-separated; the first one is shown first (default: %(default)s)")
+    parser.add_argument("-b", "--backends", default="ebscohost", help="comma-separated; the first one is shown first (default: %(default)s)")
     parser.add_argument("--field", choices=FIELDS, default="tiab", help="where to search (default: %(default)s)")
     parser.add_argument("--sample", type=int, default=10, metavar="N", help=f"records per query, 0-{MAX_SAMPLE} (default: %(default)s)")
     parser.add_argument("--sort", choices=("relevance", "date"), default="relevance", help="which records the sample takes (default: %(default)s)")
@@ -720,6 +742,7 @@ def main(argv: list[str] | None = None) -> int:
     opts = SearchOptions(field=args.field, sample=args.sample, sort=args.sort, years=years)
     http = Http(None if args.no_cache else CACHE_DIR)
     backends = [BACKENDS[name](http) for name in names]
+    pool = [BACKENDS[name](http) for name in ("ebscohost", "pubmed", "eric") if name not in names]
     started = datetime.now()
     settings = {
         "terms file": str(args.terms) if args.terms else "(none)",
@@ -729,7 +752,7 @@ def main(argv: list[str] | None = None) -> int:
         "known items supplied": len(known_ids), "cache": "off" if args.no_cache else str(CACHE_DIR),
     }
     log = Log(args.out / "ui" / f"{started:%Y%m%d-%H%M%S}.jsonl")
-    session = Session(state, backends, opts, known_ids, log, args.terms, settings)
+    session = Session(state, backends, opts, known_ids, log, args.terms, settings, pool)
 
     server = None
     for port in range(args.port, args.port + 10):

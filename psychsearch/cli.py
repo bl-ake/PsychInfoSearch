@@ -36,7 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("terms", nargs="?", type=Path, help="text file of search strings, one per line; [name] lines start concept blocks")
     parser.add_argument("-q", "--query", action="append", default=[], metavar="STRING", help="an extra query to run as written (repeatable)")
-    parser.add_argument("-b", "--backends", default="pubmed,openalex", help="comma-separated (default: %(default)s)")
+    parser.add_argument("-b", "--backends", default="ebscohost", help="comma-separated (default: %(default)s)")
     parser.add_argument("-s", "--strategies", help=f"comma-separated, or 'all' (default: {','.join(DEFAULT_STRATEGIES)}; none with --refine)")
     parser.add_argument("--refine", metavar="BLOCK", help="work on one concept block: what each of its strings contributes to the full strategy, "
                         "and what each '? candidate' line in it would add")

@@ -5,11 +5,11 @@ count and the first page of records. No account details are handled here: you lo
 
 EBSCO's terms of use prohibit automated access to the website, so this is deliberately slow and
 small: one visible window, a pause between searches, a cap on searches per run, results pages
-only (no record pages, no full text), and it stops rather than work around a block or CAPTCHA.
+only (no record pages, no full text), and on a block or CAPTCHA it pauses with an alert in the window until you clear it by hand (it never works around one).
 
 Settings (environment or .env):
-    EBSCOHOST_URL            any address from your EBSCO search session, e.g.
-                             https://research.ebsco.com/c/abc123/search  (needed to open the window)
+    EBSCOHOST_URL            any address from your EBSCO search session (default: UConn's PsycInfo,
+                             https://research.ebsco.com/c/q67rbq/search)
     EBSCOHOST_DB             database short name (default psyh = APA PsycInfo)
     EBSCOHOST_DELAY          seconds between searches (default 5, minimum 3)
     EBSCOHOST_MAX_SEARCHES   searches allowed per run (default 120)
@@ -35,6 +35,7 @@ LOGIN_WAIT = 15 * 60  # longest wait for you to do something in the window
 REMIND_EVERY = 60
 LOAD_WAIT = 45
 MIN_DELAY = 3.0
+DEFAULT_URL = "https://research.ebsco.com/c/q67rbq/search"
 _BASE = re.compile(r"^(https://[^/]+/c/[^/?#]+)")
 
 # EBSCO's (Osano) cookie banner is showing, i.e. no cookie choice is stored yet. Until it is answered,
@@ -104,6 +105,33 @@ return state;
 """.replace("CONSENT_PENDING", CONSENT_PENDING_JS)
 
 
+# A banner drawn over whatever the window shows when a search lands somewhere unexpected. The user
+# clears the problem by hand (log in, answer a challenge, ...) and clicks Continue; nothing is clicked for them.
+ALERT_JS = r"""
+const text = ALERT_TEXT;
+let bar = document.getElementById('psychsearch-alert');
+if (!bar) {
+  bar = document.createElement('div');
+  bar.id = 'psychsearch-alert';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b45309;color:#fff;' +
+    'font:15px/1.4 system-ui,sans-serif;padding:12px 16px;display:flex;gap:16px;align-items:center;box-shadow:0 2px 8px #0006';
+  const msg = document.createElement('div');
+  msg.style.flex = '1';
+  const btn = document.createElement('button');
+  btn.textContent = 'Fixed it, continue';
+  btn.style.cssText = 'font:inherit;padding:6px 12px;cursor:pointer';
+  btn.onclick = () => { window.__psychsearchContinue = true; bar.remove(); };
+  bar.append(msg, btn);
+  document.documentElement.append(bar);
+}
+bar.firstChild.textContent = text;
+const clicked = !!window.__psychsearchContinue;
+window.__psychsearchContinue = false;
+return clicked;
+"""
+
+ALERT_TRIES = 2  # alerts per search before giving up for the run
+
 WINDOW = "automation Firefox window"
 CONSENT_NEED = "Answer EBSCO's cookie banner, any option (results pages can stay blank until it is answered)"
 
@@ -129,7 +157,7 @@ class EbscoHost(Backend):
     def __init__(self, http):
         super().__init__(http)
         env = os.environ
-        self.start_url = env.get("EBSCOHOST_URL", "")
+        self.start_url = env.get("EBSCOHOST_URL") or DEFAULT_URL
         self.db = env.get("EBSCOHOST_DB", "psyh")
         self.delay = max(MIN_DELAY, float(env.get("EBSCOHOST_DELAY", "5")))
         self.max_searches = int(env.get("EBSCOHOST_MAX_SEARCHES", "120"))
@@ -226,6 +254,31 @@ class EbscoHost(Backend):
             self._halted = f"EBSCOhost: {exc}"
             raise BackendError(self._halted) from None
 
+    def _wait_for_clearance(self, seen: str) -> bool:
+        """A search landed on something that is not a results page. Say so in the window and wait for the
+        user to clear it (log in, answer a challenge) and click Continue, or for EBSCO's search page to
+        come back on its own. True when it was cleared, False when LOGIN_WAIT ran out."""
+        text = f"psychsearch paused: {seen}. Fix it in this window, then click Continue."
+        alert = ALERT_JS.replace("ALERT_TEXT", json.dumps(text))
+        need = f"Clear the problem shown at the top of the window ({seen})"
+
+        def needs() -> str:
+            try:
+                clicked = self._page.evaluate(self._context, alert)
+                state = self._page.evaluate(self._context, EXTRACT_JS)
+            except BrowserError:
+                return need  # mid-navigation (logging in, say); look again in a moment
+            if clicked or (_is_ebsco(state.get("url", "")) and (state.get("count") or state.get("hasSearchForm"))
+                           and not state.get("consentPending")):
+                return ""
+            return need
+
+        try:
+            return not self._wait_for_user(needs, poll=2)
+        except BrowserError as exc:
+            self._halted = f"EBSCOhost: {exc}"
+            raise BackendError(self._halted) from None
+
     def close(self) -> None:
         if self._page is not None:
             self._page.close()
@@ -273,8 +326,9 @@ class EbscoHost(Backend):
                 self._wait_for_consent()
             state = self._visit(url)
 
-        if not state.get("count") and not state.get("noResults"):
-            # Not a results page: logged out, blocked, or challenged. Stop here for the whole run.
+        alerts = 0
+        while not state.get("count") and not state.get("noResults"):
+            # Not a results page: logged out, blocked, or challenged. Ask the user to clear it in the window.
             where = urlsplit(state.get("url", "")).hostname or "unknown page"
             if state.get("consentPending"):
                 seen = f"the cookie banner in the {WINDOW} is still unanswered"
@@ -282,11 +336,14 @@ class EbscoHost(Backend):
                 seen = f"the results page on {where} stayed blank for {LOAD_WAIT} seconds, twice"
             else:
                 seen = f"now on {where}: {state.get('title', '')!r} {state.get('text', '')[:120]!r}"
-            self._halted = (
-                f"EBSCOhost: no results page appeared ({seen}). Stopping all further searches; check the {WINDOW}, "
-                "log in again if needed, and rerun (finished searches are cached)."
-            )
-            raise BackendError(self._halted)
+            if alerts >= ALERT_TRIES or not self._wait_for_clearance(seen):
+                self._halted = (
+                    f"EBSCOhost: no results page appeared ({seen}). Stopping all further searches; check the {WINDOW}, "
+                    "log in again if needed, and rerun (finished searches are cached)."
+                )
+                raise BackendError(self._halted)
+            alerts += 1
+            state = self._visit(url)  # paced and counted like any search
         self._base = _BASE.match(state["url"]).group(1)
         if cache is not None:
             cache.parent.mkdir(parents=True, exist_ok=True)

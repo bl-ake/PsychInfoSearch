@@ -200,3 +200,18 @@ def test_http_needs_the_token_and_local_host(tmp_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_switch_database_resets_the_comparison(tmp_path):
+    class Other(Backend):
+        name, label = "other", "Other"
+
+        def render(self, node, opts):
+            return to_generic(node)
+
+    session = Session([], [Other(Http(None))], SearchOptions(), [], Log(tmp_path / "log.jsonl"), None, {"terms file": "x"},
+                      [Other(Http(None))])
+    session.act({"type": "switch database", "name": "other"})
+    assert [b.name for b in session.backends] == ["other"] and session.runs == {}
+    with pytest.raises(UIError):
+        session.act({"type": "switch database", "name": "nope"})

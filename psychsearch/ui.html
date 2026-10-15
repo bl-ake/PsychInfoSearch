@@ -47,6 +47,8 @@ a { color: var(--accent); }
 .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .top h1 { font-size: 16px; }
 .top h1 span { color: var(--muted); font-weight: 400; }
+.dbpick { font-size: 13px; color: var(--muted); }
+.dbpick select { font: inherit; color: var(--ink); margin-left: 4px; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
 .pill { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--muted); white-space: nowrap; }
 .pill b { color: var(--ink); font-weight: 600; }
@@ -184,6 +186,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <body>
 <header class="top">
   <h1>psychsearch <span>workbench</span></h1>
+  <label class="dbpick">Database <select id="database" aria-label="Database to search"></select></label>
   <div class="meta" id="meta"></div>
 </header>
 
@@ -301,6 +304,8 @@ async function refresh() {
   await render();
 }
 
+$("database").addEventListener("change", ev => act({type: "switch database", name: ev.target.value}));
+
 async function act(body) {
   try {
     S = await api("/api/action", body);
@@ -345,6 +350,11 @@ async function render() {
 }
 
 function renderMeta() {
+  const pick = $("database"), now = S.backends[0].name;
+  const options = (S.databases || []).map(d => `<option value="${esc(d.name)}">${esc(d.label)}</option>`).join("");
+  if (pick.dataset.options !== options) { pick.innerHTML = options; pick.dataset.options = options; }
+  pick.value = now;
+  pick.disabled = !!(S.job && S.job.running);
   const pills = S.backends.map(b => b.remaining == null
     ? `<span class="pill"><b>${esc(b.label)}</b></span>`
     : `<span class="pill ${b.remaining < 15 ? "warn" : ""}"><b>${esc(b.label)}</b> · ${num(b.remaining)} searches left this session</span>`);

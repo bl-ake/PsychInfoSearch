@@ -303,3 +303,17 @@ def matches(node: Node, text: str) -> bool:
     if isinstance(node, And):
         return all(matches(p, text) for p in node.parts)
     return any(matches(p, text) for p in node.parts)
+
+
+def to_eric(node: Node, field: str = "tiab") -> str:
+    """ERIC (Institute of Education Sciences) fielded search."""
+
+    def group(n: Node) -> str:
+        inner = _inner(n, _quoted, "OR")
+        if field == "title":
+            return f"title:({inner})"
+        if field == "all":
+            return f"({inner})"
+        return f"(title:({inner}) OR description:({inner}))"
+
+    return _render(node, _quoted, group=group)

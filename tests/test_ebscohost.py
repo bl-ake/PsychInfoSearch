@@ -37,6 +37,8 @@ class FakeBiDi:
         self.ready = list(ready)  # answers to the login wait's {form, consent} check
         self.visited = []
         self.fronted = 0
+        self.alerts = 0
+        self.clicked_after = None  # the user clicks Continue once this many alerts have been drawn
 
     def bring_to_front(self, context=None):
         self.fronted += 1
@@ -52,6 +54,9 @@ class FakeBiDi:
             return self.consent.pop(0) if self.consent else False
         if script.startswith("return {form:"):
             return self.ready.pop(0)
+        if "psychsearch-alert" in script:
+            self.alerts += 1
+            return self.clicked_after is not None and self.alerts >= self.clicked_after
         return self.states[len(self.visited) - 1]
 
     def close(self):
@@ -94,6 +99,23 @@ def test_search_reads_count_and_records(make_backend):
 def test_no_results_is_zero(make_backend):
     backend = make_backend([page(noResults=True)])
     assert backend.search(parse("zzqxqzz"), SearchOptions()).count == 0
+
+
+@pytest.fixture(autouse=True)
+def quick_waits(monkeypatch):
+    monkeypatch.setattr("psychsearch.backends.ebscohost.LOGIN_WAIT", 0.3)
+    monkeypatch.setattr("psychsearch.backends.ebscohost.time.sleep", lambda _s: None)
+
+
+def test_unexpected_page_shows_alert_and_continues_when_cleared(make_backend, monkeypatch):
+    monkeypatch.setattr("psychsearch.backends.ebscohost.LOAD_WAIT", 0.05)
+    login = page(url="https://login.example.edu/sso", title="Sign in", text="Please sign in")
+    backend = make_backend([login, page("1-10 of 9 total results", [ITEM])])
+    backend._page.clicked_after = 2
+    result = backend.search(parse("anxiety"), SearchOptions())
+    assert (result.error, result.count) == ("", 9)
+    assert backend._page.alerts >= 2 and backend._page.fronted >= 1
+    assert len(backend._page.visited) == 2
 
 
 def test_stops_for_good_when_page_is_not_results(make_backend, monkeypatch):
