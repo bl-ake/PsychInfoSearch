@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>psychsearch workbench</title>
+<style>
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --ink: #1c1c1e; --muted: #6a6a70; --line: #e2e2dd; --soft: #f0f0ec;
+  --accent: #2f5bd3; --accent-ink: #ffffff; --accent-soft: #e8eefc;
+  --add: #17733f; --add-bg: #e5f3ea; --lose: #b42318; --lose-bg: #fcebe9;
+  --warn: #8a5a00; --warn-bg: #fff3d1; --chip: #eaf0fb; --chip-ink: #183b8c; --code: #f2f2ee;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141416; --panel: #1d1d20; --ink: #ececee; --muted: #a0a0a8; --line: #313136; --soft: #26262a;
+    --accent: #7c9cff; --accent-ink: #0d1430; --accent-soft: #232c48;
+    --add: #6fd39a; --add-bg: #173325; --lose: #ff8f84; --lose-bg: #3a1c1a;
+    --warn: #f0c060; --warn-bg: #3a2f12; --chip: #232c48; --chip-ink: #c9d6ff; --code: #26262a;
+    --shadow: none; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141416; --panel: #1d1d20; --ink: #ececee; --muted: #a0a0a8; --line: #313136; --soft: #26262a;
+  --accent: #7c9cff; --accent-ink: #0d1430; --accent-soft: #232c48;
+  --add: #6fd39a; --add-bg: #173325; --lose: #ff8f84; --lose-bg: #3a1c1a;
+  --warn: #f0c060; --warn-bg: #3a2f12; --chip: #232c48; --chip-ink: #c9d6ff; --code: #26262a;
+  --shadow: none; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+input[type=text], input:not([type]), select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+input:focus-visible, button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+h1, h2, h3 { margin: 0; font-weight: 600; }
+h2 { font-size: 15px; }
+h3 { font-size: 13.5px; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.top h1 { font-size: 16px; }
+.top h1 span { color: var(--muted); font-weight: 400; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.pill { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--muted); white-space: nowrap; }
+.pill b { color: var(--ink); font-weight: 600; }
+.pill.warn { border-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
+
+.grid { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) minmax(240px, 300px); gap: 16px; padding: 16px; align-items: start; }
+@media (max-width: 1150px) { .grid { grid-template-columns: minmax(290px, 360px) minmax(0, 1fr); } #log { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; box-shadow: var(--shadow); min-width: 0; }
+.stack > * + * { margin-top: 12px; }
+.hint { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+
+/* blocks */
+.block { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--panel); }
+.block + .block { margin-top: 0; }
+.block.off { background: var(--soft); }
+.block.off .chips, .block.off h3 { opacity: .55; }
+.join { text-align: center; font: 600 11px/1 ui-monospace, monospace; color: var(--muted); letter-spacing: .08em; margin: 6px 0; }
+.block-head { display: flex; align-items: center; gap: 8px; }
+.block-head .name { flex: 1; min-width: 0; }
+.block-head h3 { overflow-wrap: break-word; }
+.block-head .count { display: block; font-size: 12px; color: var(--muted); }
+.switch { position: relative; width: 30px; height: 18px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .15s; pointer-events: none; }
+.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--panel); transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(12px); }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip { display: inline-flex; align-items: center; border-radius: 6px; background: var(--chip); color: var(--chip-ink); border: 1px solid transparent; max-width: 100%; }
+.chip.off { background: transparent; color: var(--muted); border: 1px dashed var(--line); }
+.chip.off .chip-main { text-decoration: line-through; text-decoration-color: var(--muted); }
+.chip.redundant { border-color: var(--warn); }
+.chip-main { border: 0; background: none; padding: 3px 4px 3px 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; text-align: left; overflow-wrap: anywhere; }
+.chip-x { border: 0; background: none; padding: 3px 7px 3px 3px; color: inherit; opacity: .55; font-size: 14px; line-height: 1; }
+.chip-x:hover { opacity: 1; }
+.badge { font: 600 11px/1 system-ui, sans-serif; padding: 3px 5px; border-radius: 4px; margin: 0 2px; white-space: nowrap; }
+.badge.lost { background: var(--lose-bg); color: var(--lose); }
+.badge.adds { background: var(--add-bg); color: var(--add); }
+.badge.zero { background: var(--soft); color: var(--muted); }
+.badge.stale { opacity: .45; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.new { background: var(--accent-soft); color: var(--accent); }
+.add-term { display: flex; gap: 6px; }
+.add-term input { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+.note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 10px; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn.small { padding: 2px 8px; font-size: 12px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 8px 16px; }
+.icon { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 4px; }
+.icon:hover { color: var(--lose); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.preview code { display: block; background: var(--code); border-radius: 6px; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; }
+details > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.sent { margin-top: 6px; }
+.sent div { margin-top: 6px; }
+.changes ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.changes li { font: 12.5px ui-monospace, Menlo, monospace; padding: 2px 6px; border-radius: 4px; margin-top: 3px; overflow-wrap: anywhere; }
+.changes li.add { background: var(--add-bg); color: var(--add); }
+.changes li.lose { background: var(--lose-bg); color: var(--lose); }
+.runbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.runbar label { font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.error-box { background: var(--lose-bg); color: var(--lose); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
+.warn-box { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
+
+/* results */
+.empty { color: var(--muted); padding: 30px 10px; text-align: center; }
+.empty p { max-width: 520px; margin: 8px auto; }
+.job { display: grid; gap: 6px; }
+.bar { height: 6px; border-radius: 3px; background: var(--soft); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.bar.indet span { width: 30% !important; animation: slide 1.2s infinite ease-in-out; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.run-head .actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.strategy-line { font: 12.5px ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; margin: 6px 0 0; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tabs button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; }
+.tabs button[aria-pressed=true] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.full td { font-weight: 600; }
+.delta { font-size: 12px; font-weight: 600; margin-left: 6px; }
+.delta.up { color: var(--add); } .delta.down { color: var(--lose); } .delta.same { color: var(--muted); font-weight: 400; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.card { border-radius: 8px; padding: 10px 12px; border: 1px solid var(--line); min-width: 0; }
+.card.add { border-color: color-mix(in srgb, var(--add) 40%, transparent); }
+.card.lose { border-color: color-mix(in srgb, var(--lose) 40%, transparent); }
+.card .big { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.card.add .big { color: var(--add); } .card.lose .big { color: var(--lose); }
+.recs { list-style: none; padding: 0; margin: 8px 0 0; }
+.rec { padding: 8px 0; border-top: 1px solid var(--line); }
+.rec:first-child { border-top: 0; }
+.rec-title { font-weight: 550; overflow-wrap: anywhere; }
+.rec-title a { color: var(--ink); text-decoration: none; }
+.rec-title a:hover { text-decoration: underline; }
+.rec-meta { font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.rec details p { margin: 6px 0 0; font-size: 13px; }
+.compact .rec { padding: 5px 0; }
+.compact .rec-title { font-weight: 500; font-size: 13px; }
+
+/* log */
+.loghead { display: flex; align-items: center; gap: 8px; }
+.loghead h2 { flex: 1; }
+.log-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.log-list li { border-left: 3px solid var(--line); padding: 4px 0 4px 8px; margin-top: 6px; }
+.log-list li.k-run, .log-list li.k-analyze { border-left-color: var(--accent); }
+.log-list li.k-error, .log-list li.k-rejected { border-left-color: var(--lose); }
+.log-list li.viewing { background: var(--accent-soft); border-radius: 0 6px 6px 0; }
+.log-entry { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; font-size: 12.5px; overflow-wrap: anywhere; }
+button.log-entry:hover .sum { text-decoration: underline; }
+.log-entry .n { font: 600 11.5px ui-monospace, Menlo, monospace; color: var(--muted); margin-right: 4px; }
+.log-entry time { font-size: 11.5px; color: var(--muted); margin-right: 4px; }
+.tag { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin-left: 4px; }
+.entry-actions { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+
+dialog { width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--panel); color: var(--ink); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+.dlg-head { position: sticky; top: 0; background: var(--panel); padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; z-index: 1; }
+.dlg-head h2 { margin-right: auto; }
+.dlg-body { padding: 8px 16px 16px; }
+.dlg-body pre { background: var(--code); padding: 8px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 420px; overflow: auto; }
+.full-log td:first-child { white-space: nowrap; }
+#toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(640px, calc(100vw - 32px)); background: var(--ink); color: var(--panel); padding: 10px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); display: none; z-index: 10; }
+#toast.show { display: block; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>psychsearch <span>workbench</span></h1>
+  <div class="meta" id="meta"></div>
+</header>
+
+<main class="grid">
+  <section class="panel stack" aria-labelledby="strategy-h">
+    <div>
+      <h2 id="strategy-h">Strategy</h2>
+      <p class="hint">Click a string to switch it on or off; × deletes it. Strings in a block are ORed, blocks are ANDed.</p>
+    </div>
+    <div id="blocks"></div>
+    <form id="add-block" class="add-term">
+      <label class="sr" for="new-block">New block name</label>
+      <input id="new-block" placeholder="New block name" autocomplete="off">
+      <button class="btn">Add block</button>
+    </form>
+    <div class="preview">
+      <h3>Will search</h3>
+      <code id="strategy-text"></code>
+      <details class="sent-wrap"><summary>As sent to each database</summary><div id="sent" class="sent"></div></details>
+    </div>
+    <div id="changes" class="changes"></div>
+    <div class="runbar">
+      <button id="run" class="btn primary">Run</button>
+      <span id="cost" class="small muted"></span>
+      <label id="autorun-wrap" hidden><input type="checkbox" id="autorun"> Run after each change</label>
+    </div>
+    <div class="row">
+      <button id="save" class="btn small">Save as terms file…</button>
+      <span class="small muted">Ctrl/⌘+Enter runs</span>
+    </div>
+  </section>
+
+  <section class="panel stack" aria-live="polite" aria-labelledby="results-h">
+    <h2 id="results-h" class="sr">Results</h2>
+    <div id="job"></div>
+    <div id="result" class="stack"></div>
+  </section>
+
+  <aside class="panel" id="log" aria-labelledby="log-h">
+    <div class="loghead">
+      <h2 id="log-h">Recent changes</h2>
+      <button id="open-log" class="btn small">Full log</button>
+    </div>
+    <p class="hint" id="log-file"></p>
+    <ol class="log-list" id="recent"></ol>
+  </aside>
+</main>
+
+<dialog id="log-dialog" aria-labelledby="dlg-h">
+  <div class="dlg-head">
+    <h2 id="dlg-h">Full log</h2>
+    <label class="sr" for="log-session">Session</label>
+    <select id="log-session"></select>
+    <label class="sr" for="log-kind">Kind</label>
+    <select id="log-kind">
+      <option value="">Everything</option>
+      <option value="edit">Edits</option>
+      <option value="run">Runs</option>
+      <option value="analyze">Analyses</option>
+      <option value="problem">Errors and rejections</option>
+    </select>
+    <label class="sr" for="log-search">Search the log</label>
+    <input id="log-search" placeholder="Search the log" autocomplete="off">
+    <button id="log-download" class="btn small">Download .jsonl</button>
+    <button id="log-close" class="btn small">Close</button>
+  </div>
+  <div class="dlg-body"><div id="log-table"></div></div>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+const TOKEN = "__TOKEN__";
+const EDIT_KINDS = new Set(["add term", "remove term", "toggle term", "toggle block", "add block", "remove block", "restore", "compare with", "save"]);
+let S = null;                 // the latest view from the server
+let viewing = null;           // log number shown in the results panel; null follows the latest result
+let tab = null;               // backend whose records and badges are shown
+const cache = new Map();      // log number -> full entry (entries never change once written)
+let lastBlocksKey = "", lastResultKey = "", pollTimer = null, autoTimer = null, wasRunning = false;
+let logEntries = [], logSession = "";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const num = n => n == null ? "–" : Number(n).toLocaleString();
+const hhmm = t => (t || "").slice(11, 19);
+const label = name => (S.backends.find(b => b.name === name) || {}).label || name;
+
+async function api(path, body) {
+  const opts = {headers: {"X-Token": TOKEN}};
+  if (body !== undefined) {
+    opts.method = "POST";
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({error: `HTTP ${res.status}`}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+async function entry(n) {
+  if (!cache.has(n)) cache.set(n, await api(`/api/entry/${n}`));
+  return cache.get(n);
+}
+function toast(message) {
+  const t = $("toast");
+  t.textContent = message;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 6000);
+}
+
+async function refresh() {
+  try { S = await api("/api/state"); } catch (e) { toast(`Lost contact with psychsearch-ui: ${e.message}`); return; }
+  await render();
+}
+
+async function act(body) {
+  try {
+    S = await api("/api/action", body);
+  } catch (e) {
+    if (e.message.startsWith("EXISTS:")) {
+      if (confirm(`${e.message.slice(7)} already exists. Overwrite it?`)) return act({...body, overwrite: true});
+      return;
+    }
+    toast(e.message);
+    return refresh();   // the rejection is logged
+  }
+  await render();
+  scheduleAutorun();
+}
+
+async function startJob(path, body = {}) {
+  try { S = await api(path, body); } catch (e) { toast(e.message); return refresh(); }
+  viewing = null;
+  await render();
+}
+
+// ------------------------------------------------------------------ render
+
+async function render() {
+  if (!S) return;
+  if (!tab || !S.backends.some(b => b.name === tab)) tab = S.backends[0].name;
+  renderMeta();
+  renderBlocks();
+  renderPreview();
+  renderRunbar();
+  renderRecent();
+  renderJob();
+  await Promise.all([renderChanges(), renderResult()]);
+  const running = S.job && S.job.running;
+  if (running && !pollTimer) pollTimer = setInterval(refresh, 800);
+  if (!running && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (wasRunning && !running) {
+    if (S.job.error) toast(S.job.error);
+    scheduleAutorun();
+  }
+  wasRunning = running;
+}
+
+function renderMeta() {
+  const pills = S.backends.map(b => b.remaining == null
+    ? `<span class="pill"><b>${esc(b.label)}</b></span>`
+    : `<span class="pill ${b.remaining < 15 ? "warn" : ""}"><b>${esc(b.label)}</b> · ${num(b.remaining)} searches left this session</span>`);
+  $("meta").innerHTML = pills.join("") + (S.settings || []).map(([k, v]) => `<span class="pill">${esc(k)}: <b>${esc(v)}</b></span>`).join("");
+  $("log-file").textContent = `Everything is logged to ${S.log_file}`;
+}
+
+function badge(effect, analysis) {
+  if (!effect || !analysis) return "";
+  const stale = analysis.stale ? " stale" : "";
+  const when = `analysis #${analysis.n}${analysis.stale ? ", before later changes" : ""}`;
+  const v = effect.by ? effect.by[tab] : null;
+  if (effect.kind === "lost" && v != null)
+    return `<span class="badge ${v ? "lost" : "zero"}${stale}" title="Switching it off loses ${num(v)} hits in ${esc(label(tab))} (${when})">−${num(v)}</span>`;
+  if (effect.kind === "adds" && v != null)
+    return `<span class="badge ${v ? "adds" : "zero"}${stale}" title="Switching it on would add ${num(v)} records in ${esc(label(tab))} (${when})">+${num(v)}</span>`;
+  return "";
+}
+
+function renderBlocks() {
+  const key = JSON.stringify([S.blocks, tab]);
+  if (key === lastBlocksKey) return;
+  lastBlocksKey = key;
+  const focused = document.activeElement && document.activeElement.closest(".add-term[data-b]");
+  const keep = focused ? {b: focused.dataset.b, value: focused.querySelector("input").value} : null;
+  const html = [];
+  S.blocks.forEach((b, bi) => {
+    if (bi) html.push(`<div class="join">AND</div>`);
+    const on = b.terms.filter(t => t.on).length;
+    const chips = b.terms.map((t, ti) => {
+      const cls = ["chip", t.on ? "on" : "off", t.redundant ? "redundant" : ""].join(" ");
+      const warn = t.redundant ? `<span class="badge warn" title="Adds nothing: ${esc(t.redundant)}">≡</span>` : "";
+      return `<span class="${cls}">
+        <button class="chip-main" data-act="toggle term" data-b="${bi}" data-t="${ti}" aria-pressed="${t.on}"
+          title="${t.on ? "On: click to switch off" : "Off: click to switch on"}">${esc(t.text)}</button>${badge(t.effect, b.analysis)}${warn}
+        <button class="chip-x" data-act="remove term" data-b="${bi}" data-t="${ti}" title="Delete ${esc(t.text)}" aria-label="Delete ${esc(t.text)}">×</button></span>`;
+    }).join("");
+    const cost = b.analysis_cost;
+    const analyze = cost == null ? "" :
+      `<button class="btn small" data-act="analyze" data-b="${bi}" title="What each string contributes, and what each switched-off string would add">Analyze${cost ? ` · ${cost} search${cost === 1 ? "" : "es"}` : ""}</button>`;
+    const note = b.analysis
+      ? `<div class="note">Badges: −n = hits lost if switched off, +n = records it would add (analysis #${b.analysis.n}${b.analysis.stale ? "; the strategy has changed since, so they may be out of date" : ""}).</div>` : "";
+    html.push(`<div class="block ${b.on ? "" : "off"}">
+      <div class="block-head">
+        <label class="switch" title="${b.on ? "Block on: click to leave it out" : "Block off: click to include it"}"><input type="checkbox" data-act="toggle block" data-b="${bi}" ${b.on ? "checked" : ""} aria-label="Include block ${esc(b.name)}"><span></span></label>
+        <div class="name"><h3>[${esc(b.name)}]</h3><span class="count">${on} of ${b.terms.length} on</span></div>
+        ${analyze}
+        <button class="icon" data-act="remove block" data-b="${bi}" title="Delete block" aria-label="Delete block ${esc(b.name)}">×</button>
+      </div>
+      <div class="chips">${chips || `<span class="small muted">No strings yet.</span>`}</div>
+      <form class="add-term" data-b="${bi}"><label class="sr" for="add-${bi}">Add a string to ${esc(b.name)}</label>
+        <input id="add-${bi}" placeholder="Add a string, e.g. adolescen*" autocomplete="off"><button class="btn small">Add</button></form>
+      ${note}
+    </div>`);
+  });
+  $("blocks").innerHTML = html.join("") || `<p class="muted small">No blocks yet. Add one below.</p>`;
+  if (keep) {
+    const input = document.querySelector(`.add-term[data-b="${keep.b}"] input`);
+    if (input) { input.value = keep.value; input.focus(); }
+  }
+}
+
+function renderPreview() {
+  $("strategy-text").textContent = S.error ? `Error: ${S.error}` : (S.strategy || "(nothing switched on)");
+  $("sent").innerHTML = Object.entries(S.sent).map(([name, q]) =>
+    `<div><div class="small muted">${esc(label(name))}</div><code>${esc(q)}</code></div>`).join("") || `<span class="small muted">Nothing to send yet.</span>`;
+}
+
+function diffState(old, now) {
+  const out = [], before = new Map(old.map(b => [b.name, b]));
+  for (const b of now) {
+    const o = before.get(b.name);
+    if (!o) { if (b.on && b.terms.some(t => t.on)) out.push(["add", `new block [${b.name}]`]); continue; }
+    if (o.on !== b.on) out.push([b.on ? "add" : "lose", `block [${b.name}] switched ${b.on ? "on" : "off"}`]);
+    const was = new Map(o.terms.map(t => [t.text, t.on]));
+    for (const t of b.terms) if (!!was.get(t.text) !== t.on) out.push([t.on ? "add" : "lose", `${t.on ? "+" : "−"} ${t.text}  [${b.name}]`]);
+    for (const t of o.terms) if (t.on && !b.terms.some(x => x.text === t.text)) out.push(["lose", `− ${t.text}  [${b.name}] (deleted)`]);
+  }
+  for (const o of old) if (!now.some(b => b.name === o.name) && o.on && o.terms.some(t => t.on)) out.push(["lose", `block [${o.name}] deleted`]);
+  return out;
+}
+
+async function renderChanges() {
+  const el = $("changes");
+  if (S.baseline == null) { el.innerHTML = ""; return; }
+  const base = await entry(S.baseline);
+  const list = diffState(base.state, S.blocks);
+  const pin = S.pinned ? ` <button class="btn small" data-compare-latest>Compare with latest instead</button>` : "";
+  el.innerHTML = list.length
+    ? `<h3>Not run yet: ${list.length} change${list.length === 1 ? "" : "s"} since run #${S.baseline}${pin}</h3><ul>${list.map(([k, t]) => `<li class="${k}">${esc(t)}</li>`).join("")}</ul>`
+    : `<p class="small muted">No changes since run #${S.baseline}.${pin}</p>`;
+}
+
+function renderRunbar() {
+  const running = S.job && S.job.running;
+  const p = S.pending;
+  $("run").disabled = running || !S.strategy || !!S.error;
+  $("run").textContent = running ? "Running…" : "Run";
+  const parts = [];
+  if (S.strategy && !S.error) parts.push(p.searches ? `${p.searches} new search${p.searches === 1 ? "" : "es"}` : "no new searches needed");
+  if (p.proved_empty) parts.push(`${p.proved_empty} answered without searching`);
+  $("cost").textContent = parts.join(" · ");
+  $("autorun-wrap").hidden = !S.autorun;
+}
+
+function renderRecent() {
+  const shown = viewing ?? S.latest_result;
+  $("recent").innerHTML = S.recent.map(e => {
+    const isResult = e.kind === "run" || e.kind === "analyze";
+    const tags = (e.n === S.baseline ? `<span class="tag">${S.pinned ? "compared with (pinned)" : "compared with"}</span>` : "");
+    const head = `<span class="n">#${e.n}</span><time>${hhmm(e.time)}</time><span class="sum">${esc(e.summary)}</span>${tags}`;
+    const main = isResult ? `<button class="log-entry" data-view="${e.n}" title="Show these results">${head}</button>` : `<div class="log-entry">${head}</div>`;
+    const actions = e.kind === "run" ? `<div class="entry-actions">
+        <button class="btn small" data-restore="${e.n}" title="Make this run's strategy the working strategy">Restore</button>
+        <button class="btn small" data-compare="${e.n}" title="Compare the next runs with this one">Compare with</button></div>` : "";
+    return `<li class="k-${esc(e.kind.replace(/\s+/g, "-"))} ${e.n === shown ? "viewing" : ""}">${main}${actions}</li>`;
+  }).join("") || `<li class="muted small">Nothing yet.</li>`;
+}
+
+function renderJob() {
+  const j = S.job || {};
+  if (!j.running) { $("job").innerHTML = ""; return; }
+  const pct = j.total ? Math.round(100 * j.done / j.total) : 0;
+  $("job").innerHTML = `<div class="job"><div class="small">${esc(j.message || "Working")}</div>
+    <div class="bar ${j.total ? "" : "indet"}"><span style="width:${pct}%"></span></div></div>`;
+}
+
+// ---------------------------------------------------------------- results
+
+async function renderResult() {
+  const shown = viewing ?? S.latest_result;
+  const key = `${shown}|${tab}`;
+  if (key === lastResultKey) return;
+  lastResultKey = key;
+  const el = $("result");
+  if (shown == null) {
+    el.innerHTML = `<div class="empty"><h2>No results yet</h2>
+      <p>Press <b>Run</b> to search the strategy on the left. After that, every run shows how many hits each block and the full strategy get, and, for the change you made, exactly which records it <b>added</b> and which it <b>lost</b>.</p>
+      <p>Use <b>Analyze</b> on a block to see what each of its strings contributes, and what each switched-off string would add.</p></div>`;
+    return;
+  }
+  const e = await entry(shown);
+  el.innerHTML = e.kind === "run" ? await runHtml(e) : analysisHtml(e);
+}
+
+function tabsHtml() {
+  if (S.backends.length < 2) return "";
+  return `<div class="tabs" role="group" aria-label="Database shown">${S.backends.map(b =>
+    `<button data-tab="${esc(b.name)}" aria-pressed="${b.name === tab}">${esc(b.label)}</button>`).join("")}</div>`;
+}
+
+function delta(now, before) {
+  if (now == null || before == null) return "";
+  const d = now - before;
+  if (!d) return `<span class="delta same">±0</span>`;
+  return `<span class="delta ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : "−"}${num(Math.abs(d))}</span>`;
+}
+
+function recHtml(r, isNew) {
+  const authors = r.authors.join("; ") + (r.more_authors ? ` +${r.more_authors}` : "");
+  const meta = [authors, r.year, r.journal, r.cited_by != null ? `cited by ${num(r.cited_by)}` : "",
+    r.blocks_matched ? `title/abstract matches ${r.blocks_matched} blocks` : ""].filter(Boolean).map(esc).join(" · ");
+  const title = r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title || "(no title)")}</a>` : esc(r.title || "(no title)");
+  const more = (r.abstract || r.subjects.length) ? `<details><summary>Abstract${r.subjects.length ? " and subjects" : ""}</summary>
+      ${r.abstract ? `<p>${esc(r.abstract)}</p>` : ""}${r.subjects.length ? `<p class="small muted">Subjects: ${esc(r.subjects.join("; "))}</p>` : ""}</details>` : "";
+  return `<li class="rec"><div class="rec-title">${title}${isNew ? ` <span class="badge new" title="Not in the sample of the run compared with">new in sample</span>` : ""}</div>
+    <div class="rec-meta">${meta}</div>${more}</li>`;
+}
+
+function changeCard(q, kind, base) {
+  const r = q.by[tab];
+  const title = kind === "add" ? "Added by the changes" : "Lost by the changes";
+  if (r.error) return `<div class="card ${kind}"><h3>${title}</h3><div class="error-box">${esc(r.error)}</div></div>`;
+  const why = q.proved_empty
+    ? `<p class="small muted">${kind === "add" ? "The new strategy is narrower than #" + base + ", so it cannot add records" : "The new strategy contains all of #" + base + ", so it cannot lose records"} (known without searching).</p>`
+    : `<details><summary>Query</summary><code class="small">${esc(r.sent)}</code></details>`;
+  const recs = r.records.length ? `<ul class="recs compact">${r.records.map(x => recHtml(x, false)).join("")}</ul>` : "";
+  const shown = r.records.length && r.count > r.records.length ? `<p class="small muted">Showing ${r.records.length} of ${num(r.count)}.</p>` : "";
+  return `<div class="card ${kind}"><h3>${title}</h3><div class="big">${kind === "add" ? "+" : "−"}${num(r.count)}</div>
+    <div class="small muted">records ${kind === "add" ? "in the new results that were not in" : "in"} #${base}${kind === "add" ? "" : " that are no longer found"}</div>${why}${recs}${shown}</div>`;
+}
+
+async function runHtml(e) {
+  const base = e.baseline != null ? await entry(e.baseline) : null;
+  const find = (run, q) => run && run.queries.find(x => x.role === q.role && (q.role !== "block" || x.block === q.block));
+  const rows = e.queries.filter(q => q.role === "full" || q.role === "block");
+  const isLatest = e.n === S.latest;
+  const head = `<div class="run-head"><h2>Run #${e.n}</h2><span class="small muted">${esc(e.time.replace("T", " "))}</span>
+      <span class="small muted">${base ? `compared with run #${base.n}` : "first run"}</span>
+      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}
+        ${!isLatest ? `<button class="btn small" data-restore="${e.n}">Restore this strategy</button>` : ""}
+        <button class="btn small" data-compare="${e.n}">Compare next runs with this</button></div></div>
+      <p class="strategy-line">${esc(e.strategy)}</p>`;
+
+  const cols = S.backends.map(b => `<th class="num">${esc(b.label)}${base ? `<br><span class="small">vs #${base.n}</span>` : ""}</th>`).join("");
+  const body = rows.map(q => {
+    const before = find(base, q);
+    const cells = S.backends.map(b => {
+      const r = q.by[b.name];
+      if (!r) return `<td class="num">–</td>`;
+      if (r.error) return `<td class="num" title="${esc(r.error)}"><span class="badge lost">error</span></td>`;
+      return `<td class="num">${num(r.count)}${before ? delta(r.count, before.by[b.name] && before.by[b.name].count) : (base ? `<span class="delta same">new</span>` : "")}</td>`;
+    }).join("");
+    return `<tr class="${q.role}"><td>${q.role === "full" ? "Full strategy" : esc(q.label)}</td>${cells}</tr>`;
+  }).join("");
+  const full = e.queries.find(q => q.role === "full");
+  const extra = S.backends.map(b => {
+    const r = full.by[b.name] || {};
+    const bits = [];
+    if (r.known_total != null && r.known_found != null) bits.push(`known items found: <b>${r.known_found}/${r.known_total}</b>${r.known_missed && r.known_missed.length ? ` <span class="muted">(missing: ${esc(r.known_missed.join("; "))})</span>` : ""}`);
+    if (r.on_topic != null) bits.push(`on-topic in sample: <b>${Math.round(100 * r.on_topic)}%</b>`);
+    const how = r.interpretation ? `<details><summary>How ${esc(b.label)} read the query</summary><code class="small">${esc(r.interpretation)}</code></details>` : "";
+    return bits.length || how ? `<div class="small">${bits.length ? `${esc(b.label)}: ${bits.join(" · ")}` : ""}${how}</div>` : "";
+  }).join("");
+  const errors = e.queries.flatMap(q => Object.entries(q.by).filter(([, r]) => r.error).map(([n, r]) => `${label(n)}, ${q.label}: ${r.error}`));
+  const warnings = [...new Set(e.queries.flatMap(q => Object.entries(q.by).flatMap(([n, r]) => (r.warnings || []).map(w => `${label(n)}: ${w}`))))];
+
+  const added = e.queries.find(q => q.role === "added"), lost = e.queries.find(q => q.role === "lost");
+  let change;
+  if (!base) change = `<p class="small muted">This is the first run. From the next run on, this space shows exactly which records your changes added and lost.</p>`;
+  else if (!added) change = `<p class="small muted">Same strategy as run #${base.n}: nothing changed.</p>`;
+  else change = `<div class="cards">${changeCard(added, "add", base.n)}${changeCard(lost, "lose", base.n)}</div>`;
+
+  const r = full.by[tab] || {records: []};
+  const baseFull = find(base, full);
+  const baseIds = baseFull && baseFull.by[tab] ? new Set(baseFull.by[tab].records.map(x => x.id)) : null;
+  const sameAsBase = !added;
+  const recs = r.records.length
+    ? `<ul class="recs">${r.records.map(x => recHtml(x, baseIds && !sameAsBase && !baseIds.has(x.id))).join("")}</ul>`
+    : `<p class="small muted">${r.error ? "" : "No records."}</p>`;
+
+  return `${head}
+    ${errors.length ? `<div class="error-box">${errors.map(esc).join("<br>")}</div>` : ""}
+    <div class="table-wrap"><table><thead><tr><th>Query</th>${cols}</tr></thead><tbody>${body}</tbody></table></div>
+    <div>${extra}</div>
+    ${warnings.length ? `<div class="warn-box small">${warnings.map(esc).join("<br>")}</div>` : ""}
+    <div>${tabsHtml()}</div>
+    <div><h3>What the change did</h3>${change}</div>
+    <div><h3>Sample of the full strategy <span class="small muted">(${esc(label(tab))}, first ${r.records.length})</span></h3>${recs}</div>`;
+}
+
+function analysisHtml(e) {
+  const full = e.rows[0];
+  const cols = S.backends.map(b => `<th class="num">${esc(b.label)}</th>`).join("");
+  const cell = (row, b) => {
+    const r = row.by[b.name] || {};
+    if (r.error) return `<td class="num" title="${esc(r.error)}"><span class="badge lost">error</span></td>`;
+    if (row.role === "minus") return `<td class="num">${r.lost == null ? "–" : `<span class="delta ${r.lost ? "down" : "same"}">−${num(r.lost)}</span>`}</td>`;
+    return `<td class="num"><span class="delta ${r.count ? "up" : "same"}">+${num(r.count)}</span></td>`;
+  };
+  const rows = e.rows.slice(1).map(row => {
+    const what = row.role === "minus" ? "lost if switched off" : "would add if switched on";
+    const sample = row.role === "adds" && row.by[tab] && row.by[tab].records.length
+      ? `<details><summary>Records it would add (${esc(label(tab))})</summary><ul class="recs compact">${row.by[tab].records.map(x => recHtml(x, false)).join("")}</ul></details>` : "";
+    return `<tr><td><code>${esc(row.term)}</code> <span class="small muted">${what}</span>${sample}</td>${S.backends.map(b => cell(row, b)).join("")}</tr>`;
+  });
+  for (const [term, eff] of Object.entries(e.effects)) {
+    if (eff.kind === "covered") rows.push(`<tr><td><code>${esc(term)}</code> <span class="small muted">adds nothing: ${esc(eff.reason)} (not searched)</span></td>${S.backends.map(() => `<td class="num"><span class="delta same">0</span></td>`).join("")}</tr>`);
+    if (eff.kind === "only") rows.push(`<tr><td><code>${esc(term)}</code> <span class="small muted">the block's only string: switching it off leaves the block out</span></td>${S.backends.map(() => `<td class="num">–</td>`).join("")}</tr>`);
+  }
+  const fullCells = S.backends.map(b => `<td class="num">${full.by[b.name] && full.by[b.name].error ? `<span class="badge lost" title="${esc(full.by[b.name].error)}">error</span>` : num(full.by[b.name] && full.by[b.name].count)}</td>`).join("");
+  return `<div class="run-head"><h2>Analysis #${e.n} of [${esc(e.block)}]</h2><span class="small muted">${esc(e.time.replace("T", " "))}</span>
+      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}</div></div>
+    <p class="strategy-line">${esc(e.strategy)}</p>
+    <p class="small muted">Each switched-on string: the hits the full strategy loses without it (what it alone contributes). Each switched-off string: the records it would add (it, NOT the rest of the block, AND the other blocks).
+      To see exactly which records a string contributes, switch it off and run.</p>
+    <div class="table-wrap"><table><thead><tr><th>String</th>${cols}</tr></thead><tbody>
+      <tr class="full"><td>Full strategy</td>${fullCells}</tr>${rows.join("")}</tbody></table></div>
+    <div>${tabsHtml()}</div>`;
+}
+
+// ------------------------------------------------------------------- log
+
+async function openLog() {
+  const sessions = await api("/api/sessions");
+  logSession = (sessions.find(s => s.current) || sessions[0] || {}).file || "";
+  $("log-session").innerHTML = sessions.map(s => `<option value="${esc(s.file)}" ${s.file === logSession ? "selected" : ""}>${esc(s.file)}${s.current ? " (this session)" : ""}</option>`).join("");
+  await loadLog();
+  $("log-dialog").showModal();
+}
+async function loadLog() {
+  try { logEntries = await api(`/api/log?session=${encodeURIComponent(logSession)}`); }
+  catch (e) { toast(e.message); logEntries = []; }
+  renderLog();
+}
+function renderLog() {
+  const kind = $("log-kind").value, needle = $("log-search").value.toLowerCase();
+  const current = S && logSession === S.log_file.split("/").pop();
+  const keep = logEntries.filter(e =>
+    (!kind || (kind === "edit" ? EDIT_KINDS.has(e.kind) : kind === "problem" ? (e.kind === "error" || e.kind === "rejected") : e.kind === kind)) &&
+    (!needle || JSON.stringify(e).toLowerCase().includes(needle)));
+  const rows = keep.slice().reverse().map(e => {
+    const actions = current && (e.kind === "run" || e.kind === "analyze")
+      ? `<div class="entry-actions"><button class="btn small" data-view="${e.n}" data-close>Show</button>${e.kind === "run" ? `<button class="btn small" data-restore="${e.n}" data-close>Restore</button><button class="btn small" data-compare="${e.n}" data-close>Compare with</button>` : ""}</div>` : "";
+    return `<tr><td class="mono">#${e.n}</td><td class="small">${esc(e.time.replace("T", " "))}</td><td class="small">${esc(e.kind)}</td>
+      <td>${esc(e.summary)}${e.strategy !== undefined ? `<div class="strategy-line">${esc(e.strategy || "(nothing switched on)")}</div>` : ""}${actions}
+      <details data-n="${e.n}"><summary>Details</summary><pre></pre></details></td></tr>`;
+  }).join("");
+  $("log-table").innerHTML = `<p class="small muted">${keep.length} of ${logEntries.length} entries, newest first.</p>
+    <div class="table-wrap"><table class="full-log"><thead><tr><th>#</th><th>Time</th><th>Kind</th><th>What happened</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+$("log-table").addEventListener("toggle", ev => {
+  const d = ev.target;
+  if (d.tagName !== "DETAILS" || !d.open) return;
+  const e = logEntries.find(x => String(x.n) === d.dataset.n);
+  d.querySelector("pre").textContent = JSON.stringify(e, null, 2);
+}, true);
+$("log-kind").addEventListener("change", renderLog);
+$("log-search").addEventListener("input", renderLog);
+$("log-session").addEventListener("change", ev => { logSession = ev.target.value; loadLog(); });
+$("log-close").addEventListener("click", () => $("log-dialog").close());
+$("open-log").addEventListener("click", openLog);
+$("log-download").addEventListener("click", () => {
+  const blob = new Blob([logEntries.map(e => JSON.stringify(e)).join("\n") + "\n"], {type: "application/x-ndjson"});
+  const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), download: logSession || "psychsearch-log.jsonl"});
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+// ---------------------------------------------------------------- events
+
+document.addEventListener("click", ev => {
+  const t = ev.target.closest("button, input[type=checkbox]");
+  if (!t) return;
+  const d = t.dataset;
+  if (d.close !== undefined) $("log-dialog").close();
+  if (d.act === "toggle term" || d.act === "remove term") return act({type: d.act, block: +d.b, term: +d.t});
+  if (d.act === "toggle block") return act({type: "toggle block", block: +d.b});
+  if (d.act === "remove block") {
+    const b = S.blocks[+d.b];
+    if (b.terms.length && !confirm(`Delete block [${b.name}] and its ${b.terms.length} string(s)? Switching it off keeps it.`)) return;
+    return act({type: "remove block", block: +d.b});
+  }
+  if (d.act === "analyze") return startJob("/api/analyze", {block: +d.b});
+  if (d.view !== undefined) { viewing = +d.view === S.latest_result ? null : +d.view; lastResultKey = ""; return render(); }
+  if (d.viewLatest !== undefined) { viewing = null; return render(); }
+  if (d.restore !== undefined) return act({type: "restore", run: +d.restore});
+  if (d.compare !== undefined) return act({type: "compare with", run: +d.compare});
+  if (d.compareLatest !== undefined) return act({type: "compare with", run: null});
+  if (d.tab !== undefined) { tab = d.tab; return render(); }
+});
+document.addEventListener("submit", ev => {
+  ev.preventDefault();
+  const form = ev.target, input = form.querySelector("input");
+  if (form.id === "add-block") {
+    const count = S.blocks.length;
+    act({type: "add block", name: input.value}).then(() => {
+      if (S.blocks.length <= count) return;
+      input.value = "";
+      const box = document.querySelector(`.add-term[data-b="${S.blocks.length - 1}"] input`);
+      if (box) box.focus();
+    });
+    return;
+  }
+  const b = +form.dataset.b, value = input.value;
+  const before = S.blocks[b] ? S.blocks[b].terms.length : 0;
+  act({type: "add term", block: b, text: value}).then(() => {
+    if (S.blocks[b] && S.blocks[b].terms.length > before) {
+      const box = document.querySelector(`.add-term[data-b="${b}"] input`);
+      if (box) { box.value = ""; box.focus(); }
+    }
+  });
+});
+$("run").addEventListener("click", () => startJob("/api/run"));
+$("save").addEventListener("click", () => {
+  const path = prompt("Save the strategy as a terms file (switched-off strings are saved as '?' candidates):", S.save_path);
+  if (path) act({type: "save", path});
+});
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey) && !$("run").disabled) { ev.preventDefault(); startJob("/api/run"); }
+});
+
+let autorun = false;
+try { autorun = localStorage.getItem("psychsearch-autorun") === "1"; } catch (e) {}
+$("autorun").checked = autorun;
+$("autorun").addEventListener("change", ev => {
+  autorun = ev.target.checked;
+  try { localStorage.setItem("psychsearch-autorun", autorun ? "1" : "0"); } catch (e) {}
+  scheduleAutorun();
+});
+function scheduleAutorun() {
+  clearTimeout(autoTimer);
+  if (!autorun || !S || !S.autorun) return;
+  autoTimer = setTimeout(async () => {
+    if (!S || (S.job && S.job.running) || !S.strategy || S.error) return;
+    const latest = S.latest != null ? await entry(S.latest) : null;
+    if (!latest || latest.strategy !== S.strategy) startJob("/api/run");
+  }, 900);
+}
+
+refresh();
+</script>
+</body>
+</html>

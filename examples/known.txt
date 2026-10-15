@@ -1,0 +1,11 @@
+# Papers you already know are relevant: one DOI or PMID per line.
+# Each query is scored on how many of these it retrieves.
+
+10.30862/jri.v6i1.60
+10.1108/QRDE-07-2020-0006 
+10.1111/jcal.12611
+10.3389/feduc.2024.1358492
+10.1016/j.edurev.2013.01.001
+10.1007/s10763-026-10711-w
+10.1007/s10763-025-10644-w
+10.1016/j.edurev.2020.100337

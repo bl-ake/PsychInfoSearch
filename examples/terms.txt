@@ -1,0 +1,22 @@
+# One search string per line. [name] starts a concept block:
+# strings inside a block are ORed, blocks are ANDed.
+# AND / OR / NOT must be capitals; * truncates; unquoted multi-word lines are phrases.
+
+[math]
+math*
+mathematics
+
+[gamification]
+? gamifi*
+game*
+gamifi AND game*
+"serious game"
+
+[software]
+electronic
+software
+
+[population]
+? "middle school"
+student*
+"middle school" AND classroom
