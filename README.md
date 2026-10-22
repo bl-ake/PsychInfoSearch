@@ -40,6 +40,8 @@ The page opens in your web browser. **Keep the Terminal window open while you wo
 
 That starts you with the free databases (PubMed and OpenAlex). To search PsycInfo, see [Searching PsycInfo](#searching-psycinfo) below.
 
+After a run or an analysis, the **Hasse diagram** button opens a new tab showing how your strings, blocks and the full strategy fit inside one another. Narrower searches are drawn lower, and a line joins each one to the next broader search that contains it. Each search is coloured by its number of hits. Strings that were never searched on their own are drawn hollow.
+
 ---
 
 ## Searching PsycInfo

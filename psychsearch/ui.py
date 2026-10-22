@@ -7,7 +7,8 @@ strategy and each block, and, when a previous run exists, the records the change
 (``new NOT old``) and the ones it lost (``old NOT new``). Both are real searches with sample records.
 A side that containment shows must be empty (adding an OR string cannot lose records) is reported
 as 0 without searching. "Analyze" on a block shows what each of its strings contributes and what
-each switched-off string would add (the same queries as ``--refine``).
+each switched-off string would add (the same queries as ``--refine``). "Hasse diagram" on a run or
+an analysis opens its queries, blocks and strings ordered by containment (see ``hasse.py``) in a new tab.
 
 Every action and every result is appended to ``results/ui/<timestamp>.jsonl``. The page shows the
 recent entries and, on request, the full log of this or an earlier session. Any earlier run can be
@@ -47,6 +48,7 @@ from .redundancy import covers, find_redundant
 from .runner import KnownSet, Outcome, resolve_known, run, score_records
 
 PAGE = Path(__file__).with_name("ui.html")
+PLOTLY_JS = "/plotly.min.js"  # served from the installed plotly, so diagrams work offline
 RECENT = 12  # log entries shown beside the results
 LINE = 1000  # synthetic line numbers for find_redundant: block index * LINE + string index
 
@@ -556,6 +558,51 @@ class Session:
         with self.lock:
             self.analysis[name] = {"n": entry["n"], "strategy": strategy_text(state), "terms": effects}
 
+    def hasse_html(self, n: int, backend: str, theme: str, plotlyjs: str) -> str:
+        """A Hasse diagram page for run or analysis `n`: its searched queries plus each block and each
+        switched-on string of its strategy. A string not searched on its own takes its counts from any
+        search of the same query in this session, and is otherwise drawn hollow."""
+        from . import hasse  # plotly loads only when a diagram is asked for
+
+        e = self.log.get(n)
+        if e["kind"] not in ("run", "analyze"):
+            raise UIError(f"#{n} is not a run or an analysis")
+        if theme not in hasse.THEMES:
+            theme = "light"
+        names = {"full": "full strategy", "block": "blocks", "minus": "full minus a string", "adds": "added by a string"}
+        # a run's "added"/"lost" searches compare with another run's strategy, so they are left out
+        searched = [q for q in (e["queries"] if e["kind"] == "run" else e["rows"]) if q["role"] in names]
+        if backend not in searched[0]["by"]:
+            raise UIError(f"#{n} did not search {backend!r}")
+
+        def outcomes(by: dict) -> dict:
+            return {name: {"result": {"count": r.get("count"), "error": r.get("error")}, "known_found": r.get("known_found"),
+                           "known_total": r.get("known_total"), "on_topic": r.get("on_topic")} for name, r in by.items()}
+
+        earlier: dict[str, dict] = {}  # query text -> outcomes, from any search in this session
+        for other in self.log.entries:
+            for q in other.get("queries") or other.get("rows") or []:
+                if other["kind"] in ("run", "analyze") and not any(r.get("error") for r in q["by"].values()):
+                    earlier[q["query"]] = q["by"]
+
+        queries = [{"n": i, "label": "Full strategy" if q["role"] == "full" else q["label"], "strategy": names[q["role"]],
+                    "query": q["query"], "backends": outcomes(q["by"])} for i, q in enumerate(searched, 1)]
+        seen = {q["query"] for q in queries}
+        for block in _blocks(e["state"]):
+            for label, node, strategy in [(block.label, block.node, "blocks"), *((to_generic(t), t, "strings") for t in block.terms)]:
+                text = to_generic(node)
+                if text not in seen:
+                    seen.add(text)
+                    queries.append({"n": len(queries) + 1, "label": label, "strategy": strategy, "query": text,
+                                    "backends": outcomes(earlier.get(text, {}))})
+        what = f"Run #{n}" if e["kind"] == "run" else f"Analysis #{n} of [{e['block']}]"
+        label = next((b.label for b in self.pool.values() if b.name == backend), backend)
+        figure = hasse.build_figure({"queries": queries}, backend, theme=theme, title=f"{what}: queries ordered by containment, with {label} hits")
+        page = figure.to_html(include_plotlyjs=plotlyjs, full_html=True, config={"displaylogo": False})
+        head = (f"<head><title>Hasse diagram #{n}</title><meta name=\"color-scheme\" content=\"{theme}\">"
+                f"<style>body {{ margin: 0; background: {hasse.THEMES[theme]['surface']}; }}</style>")
+        return page.replace("<head>", head, 1)
+
     def _budget(self) -> dict:
         left = {b.name: b.max_searches - b.searches for b in self.backends if hasattr(b, "max_searches")}
         return {"searches_left": left} if left else {}
@@ -570,6 +617,16 @@ def _short(text: str, limit: int = 200) -> str:
     """One line for a summary; the full text stays in the entry's other fields."""
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+_plotly_cache: list[bytes] = []
+
+
+def _plotly_js() -> bytes:
+    if not _plotly_cache:
+        from plotly.offline import get_plotlyjs
+        _plotly_cache.append(get_plotlyjs().encode())
+    return _plotly_cache[0]
 
 
 def _brief(entry: dict) -> dict:
@@ -631,6 +688,13 @@ class Handler(BaseHTTPRequestHandler):
                 page = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", self.server.token)
                 self._send(200, page.encode(), "text/html; charset=utf-8")
             return
+        if url.path == PLOTLY_JS:
+            if self._allowed(api=False):
+                self._send(200, _plotly_js(), "text/javascript; charset=utf-8")
+            return
+        if match := re.fullmatch(r"/hasse/(\d+)", url.path):
+            self._hasse(int(match.group(1)), parse_qs(url.query))
+            return
         if not self._allowed(api=True):
             return
         session, query = self.server.session, parse_qs(url.query)
@@ -655,6 +719,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"not found", "text/plain")
         except UIError as exc:
             self._json({"error": str(exc)}, 400)
+
+    def _hasse(self, n: int, query: dict) -> None:
+        # Opened in its own tab, which cannot send the X-Token header, so the token comes in the URL.
+        if not self._allowed(api=False):
+            return
+        if not secrets.compare_digest(query.get("token", [""])[0], self.server.token):
+            self._send(403, b"forbidden", "text/plain")
+            return
+        session = self.server.session
+        backend = query.get("backend", [""])[0] or session.backends[0].name
+        try:
+            page = session.hasse_html(n, backend, query.get("theme", ["light"])[0], PLOTLY_JS)
+        except (UIError, QueryError) as exc:
+            self._send(400, f"Cannot draw a Hasse diagram of #{n}: {exc}".encode(), "text/plain; charset=utf-8")
+            return
+        self._send(200, page.encode(), "text/html; charset=utf-8")
 
     def do_POST(self) -> None:
         if not self._allowed(api=True):

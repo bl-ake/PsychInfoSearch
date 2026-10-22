@@ -215,3 +215,32 @@ def test_switch_database_resets_the_comparison(tmp_path):
     assert [b.name for b in session.backends] == ["other"] and session.runs == {}
     with pytest.raises(UIError):
         session.act({"type": "switch database", "name": "nope"})
+
+
+def test_hasse_diagram_of_a_run(tmp_path):
+    session, _ = _session(tmp_path)
+    session.act({"type": "add term", "block": 0, "text": "algebra"})
+    entry = _run(session)
+    page = session.hasse_html(entry["n"], "fake", "dark", "/plotly.min.js")
+    assert f"<title>Hasse diagram #{entry['n']}</title>" in page and 'src="/plotly.min.js"' in page
+    # the full strategy and blocks were searched; each string of [math] is drawn too, without a count
+    for label in ("Full strategy", "[math]", "[game]", "math*", "algebra", "not searched on its own"):
+        assert label in page
+    with pytest.raises(UIError):
+        session.hasse_html(1, "fake", "light", "/plotly.min.js")  # the session start entry
+
+    server = Server(0, session)
+    port = server.server_address[1]
+    server.hosts = {f"127.0.0.1:{port}"}
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{port}"
+        with pytest.raises(urllib.error.HTTPError) as no_token:
+            urllib.request.urlopen(f"{base}/hasse/{entry['n']}")
+        assert no_token.value.code == 403
+        page = urllib.request.urlopen(f"{base}/hasse/{entry['n']}?backend=fake&token={server.token}").read().decode()
+        assert "algebra" in page
+        assert b"plotly" in urllib.request.urlopen(base + "/plotly.min.js").read(2000).lower()
+    finally:
+        server.shutdown()
+        server.server_close()

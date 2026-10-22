@@ -44,6 +44,13 @@ SYMBOLS = {
     "drop-one": "triangle-down",
     "refine": "pentagon",
     "custom": "star",
+    # psychsearch-ui runs and analyses
+    "full strategy": "diamond",
+    "strings": "circle",
+    "added": "triangle-up",
+    "lost": "triangle-down",
+    "full minus a string": "pentagon",
+    "added by a string": "hexagon",
 }
 # Colour roles. Hits use one hue (light = few, dark = many on the light theme); strategy is
 # carried by marker shape, so the diagram never relies on telling several hues apart.
@@ -234,10 +241,15 @@ def _hover(item: Item, items: list[Item], backend: str, backends: list[str], kno
         outcome = item.data.get(name) or {}
         result = outcome.get("result") or {}
         row = f"{name}: <b>{_num(result.get('count'))}</b> hits"
+        if not outcome:
+            row = f"{name}: not searched on its own"
         if result.get("error"):
             row = f"{name}: error"
         if outcome.get("known_found") is not None:
-            row += f" · known {outcome['known_found']}/{len((known.get(name) or {}).get('indexed') or {})}"
+            total = outcome.get("known_total")
+            if total is None:
+                total = len((known.get(name) or {}).get("indexed") or {})
+            row += f" · known {outcome['known_found']}/{total}"
         if outcome.get("on_topic") is not None:
             row += f" · on-topic {outcome['on_topic']:.0%}"
         lines.append(row)
@@ -265,11 +277,13 @@ def build_figure(
     backend: str | None = None,
     strategies: set[str] | None = None,
     theme: str = "light",
+    title: str | None = None,
 ) -> go.Figure:
     """Build the diagram from a loaded results.json.
 
     backend     whose hit counts to colour by (default: the first PsycInfo backend, else the first)
     strategies  keep only queries from these strategies
+    title       first line of the heading (default: "Search strings ordered by containment, with <db> hits")
     """
     backends = list(run["queries"][0]["backends"]) if run["queries"] else []
     if backend is None:
@@ -319,8 +333,8 @@ def build_figure(
                 marker |= {"color": colors["surface"], "line": {"color": colors["muted"], "width": 1.5}}
             figure.add_trace(go.Scatter(
                 x=[i.x for i in group], y=[i.y for i in group], mode="markers+text",
-                name=strategy if counted else f"{strategy} (no count)", marker=marker,
-                text=[f"{_wrap(i.label, 22, 2)}<br><b>{_num(i.hits(backend))}</b>" for i in group],
+                name=strategy if counted else f"{strategy} ({'no count' if any(i.data.get(backend) for i in group) else 'not searched'})", marker=marker,
+                text=[f"{_wrap(i.label, 22, 2)}<br><b>{_num(i.hits(backend)) if i.data.get(backend) else 'not searched'}</b>" for i in group],
                 textposition="bottom center", textfont={"size": 11, "color": colors["ink2"], "family": FONT},
                 hovertext=[_hover(i, items, backend, backends, known) for i in group], hoverinfo="text",
                 customdata=[[i.n, i.label, i.query] for i in group],
@@ -334,7 +348,7 @@ def build_figure(
     if undecided:
         note += f" {undecided} pair(s) were too large to compare and are shown unconnected."
     figure.update_layout(
-        title={"text": f"Search strings ordered by containment, with {label} hits<br><sup>{note}</sup>",
+        title={"text": f"{html.escape(title or f'Search strings ordered by containment, with {label} hits', quote=False)}<br><sup>{note}</sup>",
                "font": {"size": 17, "color": colors["ink"], "family": FONT}, "x": 0.01, "xanchor": "left"},
         paper_bgcolor=colors["surface"], plot_bgcolor=colors["surface"],
         font={"family": FONT, "color": colors["ink2"], "size": 12},

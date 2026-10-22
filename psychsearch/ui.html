@@ -500,6 +500,16 @@ async function renderResult() {
   el.innerHTML = e.kind === "run" ? await runHtml(e) : analysisHtml(e);
 }
 
+function hasseButton(n) {
+  return `<button class="btn small" data-hasse="${n}" title="Open a diagram of these queries ordered by containment (narrower below broader), coloured by hits, in a new tab">Hasse diagram</button>`;
+}
+function openHasse(n) {
+  const root = document.documentElement.dataset.theme;
+  const theme = root || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const q = new URLSearchParams({backend: tab, theme, token: TOKEN});
+  window.open(`/hasse/${n}?${q}`, "_blank", "noopener");
+}
+
 function tabsHtml() {
   if (S.backends.length < 2) return "";
   return `<div class="tabs" role="group" aria-label="Database shown">${S.backends.map(b =>
@@ -545,6 +555,7 @@ async function runHtml(e) {
   const head = `<div class="run-head"><h2>Run #${e.n}</h2><span class="small muted">${esc(e.time.replace("T", " "))}</span>
       <span class="small muted">${base ? `compared with run #${base.n}` : "first run"}</span>
       <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}
+        ${hasseButton(e.n)}
         ${!isLatest ? `<button class="btn small" data-restore="${e.n}">Restore this strategy</button>` : ""}
         <button class="btn small" data-compare="${e.n}">Compare next runs with this</button></div></div>
       <p class="strategy-line">${esc(e.strategy)}</p>`;
@@ -617,7 +628,7 @@ function analysisHtml(e) {
   }
   const fullCells = S.backends.map(b => `<td class="num">${full.by[b.name] && full.by[b.name].error ? `<span class="badge lost" title="${esc(full.by[b.name].error)}">error</span>` : num(full.by[b.name] && full.by[b.name].count)}</td>`).join("");
   return `<div class="run-head"><h2>Analysis #${e.n} of [${esc(e.block)}]</h2><span class="small muted">${esc(e.time.replace("T", " "))}</span>
-      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}</div></div>
+      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}${hasseButton(e.n)}</div></div>
     <p class="strategy-line">${esc(e.strategy)}</p>
     <p class="small muted">Each switched-on string: the hits the full strategy loses without it (what it alone contributes). Each switched-off string: the records it would add (it, NOT the rest of the block, AND the other blocks).
       To see exactly which records a string contributes, switch it off and run.</p>
@@ -691,6 +702,7 @@ document.addEventListener("click", ev => {
   if (d.act === "analyze") return startJob("/api/analyze", {block: +d.b});
   if (d.view !== undefined) { viewing = +d.view === S.latest_result ? null : +d.view; lastResultKey = ""; return render(); }
   if (d.viewLatest !== undefined) { viewing = null; return render(); }
+  if (d.hasse !== undefined) return openHasse(+d.hasse);
   if (d.restore !== undefined) return act({type: "restore", run: +d.restore});
   if (d.compare !== undefined) return act({type: "compare with", run: +d.compare});
   if (d.compareLatest !== undefined) return act({type: "compare with", run: null});
