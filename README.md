@@ -42,6 +42,12 @@ That starts you with the free databases (PubMed and OpenAlex). To search PsycInf
 
 After a run or an analysis, the **Hasse diagram** button opens a new tab showing how your strings, blocks and the full strategy fit inside one another. Narrower searches are drawn lower, and a line joins each one to the next broader search that contains it. Each search is coloured by its number of hits. Strings that were never searched on their own are drawn hollow.
 
+Click the **☆** beside any result to save it as a **relevant article**. Saved articles are listed at the top right and kept between sessions (in `results/relevant-articles.json`). From then on, every run shows how many of them each query finds, for example **★ 4/5**. The **What the change did** cards say if a change lost one, and **Analyze** shows which strings they depend on. Each article is checked in the database you saved it from. Checking takes a few extra searches, and the cost next to **Run** includes them.
+
+To pick up where you left off, click **Load session…** (beside **Recent changes**), choose a session from the list, and click **Load this session**. You get back its strategy, runs, analyses and database, and anything new you do is added to that session's log.
+
+Already have a search string, like `(math* OR algebra) AND (game* OR gamif*)`? Click **Load search string…** (under **Run**) and paste it. Each part joined by AND becomes a block (named block 1, block 2, …) and each part joined by OR becomes one of its strings. Write AND and OR in capitals. NOT isn't supported. Loading replaces the current strategy, but your earlier runs stay in the log and **Restore** brings them back.
+
 ---
 
 ## Searching PsycInfo

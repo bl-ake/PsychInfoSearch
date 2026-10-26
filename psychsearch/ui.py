@@ -8,12 +8,18 @@ strategy and each block, and, when a previous run exists, the records the change
 A side that containment shows must be empty (adding an OR string cannot lose records) is reported
 as 0 without searching. "Analyze" on a block shows what each of its strings contributes and what
 each switched-off string would add (the same queries as ``--refine``). "Hasse diagram" on a run or
-an analysis opens its queries, blocks and strings ordered by containment (see ``hasse.py``) in a new tab,
-first searching any block or string that has not been searched on its own, so every node has a count.
+an analysis opens its queries, blocks, strings and every combination of blocks ordered by containment
+(see ``hasse.py``) in a new tab, first searching any of those not yet searched, so every node has a count.
+
+The star on a sampled record saves it as a relevant article, in ``results/relevant-articles.json``, which
+every session shares. From then on each run and analysis also asks the database which of the saved
+articles each query retrieves (by record id, so only in the database each was saved from), and shows
+the proportion. Containment saves searches: an article a narrower query finds, a broader one finds too.
 
 Every action and every result is appended to ``results/ui/<timestamp>.jsonl``. The page shows the
 recent entries and, on request, the full log of this or an earlier session. Any earlier run can be
-restored or used as the comparison point.
+restored or used as the comparison point. An earlier session can be loaded to carry on where it left
+off: its log is replayed (see ``replay``) and new entries are added to it.
 
 The page is served on 127.0.0.1 only. Searches run one at a time through the same backends, cache
 and limits as the command line. For ebscohost a session of this page counts as one run: one window,
@@ -27,6 +33,8 @@ import argparse
 import copy
 import html
 import json
+import math
+import os
 import re
 import secrets
 import signal
@@ -35,6 +43,7 @@ import threading
 import traceback
 import webbrowser
 from datetime import datetime
+from itertools import combinations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -45,7 +54,7 @@ from .backends.base import MAX_SAMPLE
 from .cli import CACHE_DIR, _load_env, _load_known
 from .combos import Block, Query, blocks_from_lines, load_blocks, refine, with_candidates
 from .http import Http, HttpError
-from .query import FIELDS, Node, Not, QueryError, all_of, parse, to_generic
+from .query import FIELDS, And, Node, Not, Or, QueryError, all_of, parse, to_generic
 from .redundancy import covers, find_redundant
 from .runner import KnownSet, Outcome, resolve_known, run, score_records
 
@@ -55,7 +64,9 @@ RECENT = 12  # log entries shown beside the results
 LINE = 1000  # synthetic line numbers for find_redundant: block index * LINE + string index
 # searches of a run or analysis that its Hasse diagram shows, and the diagram's name for each
 HASSE_ROLES = {"full": "full strategy", "block": "blocks", "minus": "full minus a string", "adds": "added by a string"}
+MAX_HASSE_COMBINATIONS = 60  # block combinations a diagram adds; with 7+ blocks the larger ones are left out
 JOB_NAMES = {"run": "Run", "analyze": "Analyze", "hasse": "Searching for the Hasse diagram"}
+SAVED_FILE = "relevant-articles.json"  # beside the ui/ log folder, shared by every session
 
 
 class UIError(Exception):
@@ -78,6 +89,33 @@ def state_from_blocks(blocks: list[Block]) -> list[dict]:
             if not any(t["text"] == text for t in terms):
                 terms.append({"text": text, "on": not candidate})
         state.append({"name": block.name or f"block {number}", "on": True, "terms": terms})
+    return state
+
+
+def state_from_string(text: str) -> list[dict]:
+    """The working state for a pasted search string such as ``(a OR b) AND (c OR d)``: each part
+    joined by AND becomes a block, named block 1, block 2 and so on, and each part of it joined by OR
+    becomes one of its strings, switched on."""
+    no_not = UIError("NOT cannot be loaded, since a block's strings are ORed and blocks are ANDed; "
+                     "take the NOT part out of the string and load it again")
+    if not text.strip():
+        raise UIError("paste a search string first")
+    try:
+        node = parse(text)
+    except QueryError as exc:
+        if re.search(r"\bNOT\b", re.sub(r'"[^"]*"', "", text)):  # "a AND NOT b" fails to parse
+            raise no_not from None
+        raise UIError(str(exc)) from None
+    state = []
+    for number, part in enumerate(node.parts if isinstance(node, And) else (node,), 1):
+        if isinstance(part, Not):  # "a NOT b"
+            raise no_not
+        terms: list[dict] = []
+        for term in part.parts if isinstance(part, Or) else (part,):
+            text = _clean_term(to_generic(term))
+            if not any(t["text"] == text for t in terms):
+                terms.append({"text": text, "on": True})
+        state.append({"name": f"block {number}", "on": True, "terms": terms})
     return state
 
 
@@ -161,25 +199,37 @@ def _record(record: Record) -> dict:
 class Log:
     """Append-only JSON lines; every entry is numbered like a database search history."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, entries: list[dict] | None = None):
         self.path = path
-        self.entries: list[dict] = []
+        self.entries: list[dict] = entries or []
         self.lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
 
+    @classmethod
+    def resume(cls, path: Path) -> "Log":
+        """An earlier session's log, to add to; numbering carries on from its last entry."""
+        data = path.read_bytes()
+        if data and not data.endswith(b"\n"):  # a last line cut short by a crash: start a fresh line
+            with path.open("ab") as out:
+                out.write(b"\n")
+        return cls(path, read_log(path))
+
     def add(self, kind: str, summary: str, **data) -> dict:
         with self.lock:
-            entry = {"n": len(self.entries) + 1, "time": datetime.now().isoformat(timespec="seconds"),
-                     "kind": kind, "summary": summary, **data}
+            n = self.entries[-1]["n"] + 1 if self.entries else 1
+            entry = {"n": n, "time": datetime.now().isoformat(timespec="seconds"), "kind": kind, "summary": summary, **data}
             self.entries.append(entry)
             with self.path.open("a", encoding="utf-8") as out:
                 out.write(json.dumps(entry, ensure_ascii=False) + "\n")
             return entry
 
     def get(self, n: int) -> dict:
-        if not 1 <= n <= len(self.entries):
-            raise UIError(f"no log entry #{n}")
-        return self.entries[n - 1]
+        if 1 <= n <= len(self.entries) and self.entries[n - 1]["n"] == n:
+            return self.entries[n - 1]
+        for entry in self.entries:  # a resumed log that lost a line
+            if entry["n"] == n:
+                return entry
+        raise UIError(f"no log entry #{n}")
 
 
 def read_log(path: Path) -> list[dict]:
@@ -192,12 +242,123 @@ def read_log(path: Path) -> list[dict]:
     return entries
 
 
+def load_saved(path: Path) -> list[dict]:
+    """The saved relevant articles, oldest first. A file that is not readable as one is an error rather
+    than an empty list, so saving never overwrites it."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read the saved articles in {path}: {exc}") from None
+    if not isinstance(data, list) or not all(isinstance(a, dict) and a.get("database") and a.get("id") for a in data):
+        raise ValueError(f"{path} is not a list of saved articles")
+    return data
+
+
+def write_saved(path: Path, saved: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(saved, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(temp, path)  # all or nothing, so a crash cannot leave half a file
+
+
+def _options(o: SearchOptions) -> dict:
+    return {"field": o.field, "sample": o.sample, "sort": o.sort, "years": list(o.years) if o.years else None}
+
+
+def _logged_options(entry: dict) -> SearchOptions | None:
+    """The search settings a "session start" or "resume" entry was made with. Older logs only have
+    the settings as shown on the page, so those are read back from that text."""
+    if o := entry.get("options"):
+        return SearchOptions(field=o["field"], sample=o["sample"], sort=o["sort"], years=tuple(o["years"]) if o["years"] else None)
+    s = entry.get("settings") or {}
+    sample = re.fullmatch(r"(\d+) per query, (\w+) order", str(s.get("sample", "")))
+    years = re.fullmatch(r"(\d{4})-(\d{4})", str(s.get("years", "")))
+    if s.get("search field") not in FIELDS or not sample or not (years or s.get("years") == "any"):
+        return None
+    return SearchOptions(field=s["search field"], sample=int(sample.group(1)), sort=sample.group(2),
+                         years=(int(years.group(1)), int(years.group(2))) if years else None)
+
+
+def replay(entries: list[dict]) -> dict:
+    """The page as a session's log left it: the working strategy, the runs it can compare with, the
+    run it compares with, each block's latest analysis, and the databases and search settings.
+    Edits are logged by block name and string text, both unique within a strategy, so they replay exactly."""
+    labels = {cls.label: name for name, cls in BACKENDS.items()}
+    state: list[dict] = []
+    runs: dict[int, Node] = {}
+    analysis: dict[str, dict] = {}
+    pinned, databases, options, settings = None, [], None, {}
+    for e in entries:
+        kind = e.get("kind")
+        block = next((b for b in state if b["name"] == e.get("block")), None)
+        term = next((t for t in block["terms"] if t["text"] == e.get("term")), None) if block else None
+        if kind in ("session start", "resume"):
+            state = copy.deepcopy(e["state"])
+            names = e.get("databases") or [labels[x] for x in e.get("settings", {}).get("backends", []) if x in labels]
+            if names != databases:
+                runs, analysis, pinned, databases = {}, {}, None, names
+            options = _logged_options(e) or options
+            settings = e.get("settings") or settings
+        elif kind == "switch database" and [e["database"]] != databases:
+            runs, analysis, pinned, databases = {}, {}, None, [e["database"]]
+        elif kind == "add block":
+            state.append({"name": e["block"], "on": True, "terms": []})
+        elif kind == "remove block" and block:
+            state.remove(block)
+            analysis.pop(block["name"], None)
+        elif kind == "toggle block" and block:
+            block["on"] = e["on"]
+        elif kind == "add term" and block and not term:
+            block["terms"].append({"text": e["term"], "on": True})
+        elif kind == "remove term" and term:
+            block["terms"].remove(term)
+        elif kind == "toggle term" and term:
+            term["on"] = e["on"]
+        elif kind == "restore":
+            state = copy.deepcopy(e["state"])
+        elif kind == "load string":
+            state, analysis = copy.deepcopy(e["state"]), {}
+        elif kind == "compare with":
+            pinned = e["run"]
+        elif kind == "run":
+            try:
+                if (node := full_node(e["state"])) is not None:
+                    runs[e["n"]] = node
+            except QueryError:
+                pass
+        elif kind == "analyze":
+            analysis[e["block"]] = {"n": e["n"], "strategy": e["strategy"], "terms": e["effects"]}
+    return {"state": state, "runs": runs, "pinned": pinned if pinned in runs else None, "analysis": analysis,
+            "databases": databases, "options": options, "settings": settings}
+
+
+_summaries: dict[Path, tuple[tuple, dict]] = {}
+
+
+def session_summary(path: Path) -> dict:
+    """What the session list shows of a log; worked out again only when the file changes."""
+    stat = path.stat()
+    key = (stat.st_mtime_ns, stat.st_size)
+    if path not in _summaries or _summaries[path][0] != key:
+        entries = read_log(path)
+        _summaries[path] = (key, {
+            "started": entries[0].get("time") if entries else None,
+            "runs": sum(e.get("kind") == "run" for e in entries),
+            "strategy": next((e["strategy"] for e in reversed(entries) if "strategy" in e), ""),
+            "loadable": bool(entries) and entries[0].get("kind") == "session start",
+        })
+    return _summaries[path][1]
+
+
 # ---------------------------------------------------------------- session
 
 
 class Session:
     def __init__(self, state: list[dict], backends: list[Backend], opts: SearchOptions, known_ids: list[str],
-                 log: Log, terms_path: Path | None, settings: dict, pool: list[Backend] | None = None):
+                 log: Log, terms_path: Path | None, settings: dict, pool: list[Backend] | None = None,
+                 saved_path: Path | None = None):
         self.state = state
         self.backends = backends
         # databases the page's dropdown can switch to (one at a time); the starting ones are always included
@@ -216,10 +377,15 @@ class Session:
         self.pinned: int | None = None  # run chosen as the comparison point; None means the latest run
         self.analysis: dict[str, dict] = {}  # block name -> latest analysis
         self.hasse_extra: dict[int, list] = {}  # run/analysis log number -> diagram nodes it did not search
+        self.saved_path = saved_path or log.path.parent.parent / SAVED_FILE
+        self.saved: list[dict] = load_saved(self.saved_path)
+        # (backend, query) -> the saved ids checked against it and those it retrieves; kept while `memo` is
+        self.saved_hits: dict[tuple[str, Node], dict] = {}
         self.job: dict = {"running": False}
         self.settings = settings
         log.add("session start", f"Session started with {len(state)} block(s), searching {', '.join(b.label for b in backends)}",
-                settings=settings, state=copy.deepcopy(state), strategy=strategy_text(state))
+                settings=settings, state=copy.deepcopy(state), strategy=strategy_text(state),
+                databases=[b.name for b in backends], options=_options(opts))
 
     # ---------------------------------------------------------- reading
 
@@ -249,6 +415,25 @@ class Session:
     def _cost(self, queries: list[Query]) -> int:
         return len({q.node for q in queries} - set(self.memo)) * len(self.backends)
 
+    def _saved_ids(self, backend: str) -> dict[str, str]:
+        """Saved articles from `backend`, as {record id: title}."""
+        with self.lock:
+            return {a["id"]: a.get("title", "") for a in self.saved if a["database"] == backend}
+
+    def _saved_cost(self, queries: list[Query]) -> int:
+        """At most how many searches checking the saved articles against `queries` takes. Fewer are
+        usually needed: queries with no hits need none, and containment answers many."""
+        total = 0
+        for backend in self.backends:
+            ids = set(self._saved_ids(backend.name))
+            for node in {q.node for q in queries} if ids else ():
+                hits = self.saved_hits.get((backend.name, node))
+                todo = len(ids - hits["checked"]) if hits else len(ids)
+                done = self.memo.get(node)
+                if todo and not (done and done.by_backend[backend.name].result.count == 0):
+                    total += math.ceil(todo / (backend.known_chunk or todo))
+        return total
+
     def analysis_queries(self, state: list[dict], name: str) -> list[Query]:
         blocks = _blocks(state)
         if not any(b.name == name for b in blocks):
@@ -259,13 +444,14 @@ class Session:
         """Everything the page needs, except run results (fetched by log number)."""
         with self.lock:
             state = copy.deepcopy(self.state)
-            error, sent, pending, redundant = "", {}, {"searches": 0, "proved_empty": 0}, {}
+            error, sent, pending, redundant = "", {}, {"searches": 0, "saved_checks": 0, "proved_empty": 0}, {}
             try:
                 node = full_node(state)
                 if node is not None:
                     sent = {b.name: b.render(node, self.opts) for b in self.backends}
                 plan = self.plan(state, self.baseline())
-                pending = {"searches": self._cost([i["query"] for i in plan if not i.get("proved_empty")]),
+                searched = [i["query"] for i in plan if not i.get("proved_empty")]
+                pending = {"searches": self._cost(searched), "saved_checks": self._saved_cost(searched),
                            "proved_empty": sum(bool(i.get("proved_empty")) for i in plan)}
                 for r in find_redundant(_blocks(state, include_off=True)):
                     redundant[(r.line // LINE, r.line % LINE)] = r.reason
@@ -285,7 +471,8 @@ class Session:
                 analysis = self.analysis.get(b["name"])
                 stale = bool(analysis) and analysis["strategy"] != current
                 try:
-                    cost = self._cost(self.analysis_queries(state, b["name"]))
+                    queries = self.analysis_queries(state, b["name"])
+                    cost = self._cost(queries) + self._saved_cost(queries)
                 except (UIError, QueryError):
                     cost = None
                 terms = []
@@ -318,6 +505,9 @@ class Session:
                 "log_file": str(self.log.path),
                 "job": dict(self.job),
                 "save_path": str(self._default_save_path()),
+                "saved": [{k: a.get(k) for k in ("database", "id", "title", "year", "journal", "url", "saved")}
+                          | {"authors": (a.get("authors") or [])[:3]} for a in reversed(self.saved)],
+                "saved_file": str(self.saved_path),
             }
 
     def _default_save_path(self) -> Path:
@@ -349,7 +539,7 @@ class Session:
         backend = self.pool[name]
         if [b.name for b in self.backends] != [name]:
             self.backends = [backend]
-            self.memo, self.runs, self.analysis, self.known = {}, {}, {}, {}
+            self.memo, self.runs, self.analysis, self.known, self.saved_hits = {}, {}, {}, {}, {}
             self.pinned, self.ready = None, False
         self.settings["backends"] = [backend.label]
         return f"Switched database to {backend.label}", {"database": name}
@@ -406,6 +596,13 @@ class Session:
                 raise UIError(f"#{n} is not a run")
             self.state = copy.deepcopy(self.log.get(n)["state"])
             return f"Restored the strategy of run #{n}", {"run": n, "state": copy.deepcopy(self.state)}
+        if kind == "load string":
+            text = str(action.get("text", ""))
+            self.state = state_from_string(text)
+            self.analysis = {}  # "block 1" and so on are new blocks, whatever the old ones were called
+            count = sum(len(b["terms"]) for b in self.state)
+            return (f"Loaded a search string as {len(self.state)} block(s) with {count} string(s)",
+                    {"text": text, "state": copy.deepcopy(self.state)})
         if kind == "compare with":
             n = action.get("run")
             if n is None:
@@ -417,7 +614,44 @@ class Session:
             return f"Comparing new runs with run #{n}", {"run": int(n)}
         if kind == "save":
             return self._save(str(action.get("path", "")).strip(), bool(action.get("overwrite")))
+        if kind == "save article":
+            return self._save_article(action)
+        if kind == "unsave article":
+            database, rid = str(action.get("database", "")), str(action.get("id", ""))
+            article = next((a for a in self.saved if a["database"] == database and a["id"] == rid), None)
+            if article is None:
+                raise UIError("that article is not saved")
+            self._write_saved([a for a in self.saved if a is not article])
+            return (f"☆ Removed from relevant articles: {_short(article.get('title') or rid, 120)}",
+                    {"database": database, "id": rid, "title": article.get("title", "")})
         raise UIError(f"unknown action {kind!r}")
+
+    def _save_article(self, action: dict) -> tuple[str, dict]:
+        """Save a record shown in log entry `n` as relevant. The record is taken from the log, not the
+        page, so what is saved is what the database returned."""
+        n, database, rid = action.get("n"), str(action.get("database", "")), str(action.get("id", ""))
+        if not isinstance(n, int):
+            raise UIError("say which result the article is from")
+        entry = self.log.get(n)
+        record = next((r for q in entry.get("queries") or entry.get("rows") or []
+                       for r in (q["by"].get(database) or {}).get("records", []) if r["id"] == rid), None)
+        if record is None:
+            raise UIError(f"no record {rid} from {database} in #{n}")
+        if any(a["database"] == database and a["id"] == rid for a in self.saved):
+            raise UIError("that article is already saved")
+        label = self.pool[database].label if database in self.pool else database
+        article = {"database": database, **{k: v for k, v in record.items() if k != "blocks_matched"},
+                   "saved": datetime.now().isoformat(timespec="seconds"), "session": self.log.path.name, "entry": n}
+        self._write_saved([*self.saved, article])
+        return (f"★ Saved as relevant ({label}): {_short(record.get('title') or rid, 120)}",
+                {"database": database, "id": rid, "title": record.get("title", ""), "article": article})
+
+    def _write_saved(self, saved: list[dict]) -> None:
+        try:
+            write_saved(self.saved_path, saved)
+        except OSError as exc:
+            raise UIError(f"could not write {self.saved_path}: {exc}") from None
+        self.saved = saved
 
     def _save(self, path_text: str, overwrite: bool) -> tuple[str, dict]:
         if not path_text:
@@ -433,6 +667,58 @@ class Session:
         except (OSError, QueryError) as exc:
             raise UIError(f"could not save to {path}: {exc}") from None
         return f"Saved the strategy to {path}", {"path": str(path), "text": text}
+
+    def load(self, name: str) -> None:
+        """Carry on an earlier session: the page shows its strategy, runs, comparison point and analyses,
+        searches its databases with its settings, and adds to its log, so its numbering carries on.
+        This session's log stays as it is (or is removed if nothing happened in it yet)."""
+        with self.lock:
+            if self.job.get("running"):
+                raise UIError("a search is running; wait for it to finish before loading another session")
+            path = self.log.path.parent / Path(name).name
+            if path == self.log.path:
+                raise UIError("that is the session already open")
+            if path.suffix != ".jsonl" or not path.is_file():
+                raise UIError(f"no log {name}")
+            log = Log.resume(path)
+            if not log.entries or log.entries[0].get("kind") != "session start":
+                raise UIError(f"{name} is not a psychsearch-ui session log")
+            old = replay(log.entries)
+
+            # its databases if this page can search them; otherwise the current ones, with a fresh comparison
+            names = old["databases"]
+            backends = [self.pool[n] for n in names] if names and all(n in self.pool for n in names) else self.backends
+            note = ""
+            if backends is self.backends and names != [b.name for b in backends]:
+                old["runs"], old["analysis"], old["pinned"] = {}, {}, None
+                missing = ", ".join(BACKENDS[n].label if n in BACKENDS else n for n in names if n not in self.pool)
+                note = f" ({missing} cannot be searched from this page, so it searches {', '.join(b.label for b in backends)})"
+            opts = old["options"] or self.opts
+            same = [b.name for b in backends] == [b.name for b in self.backends]
+            if not same:
+                self.known, self.ready = {}, False
+            if not same or opts != self.opts:
+                self.memo, self.saved_hits = {}, {}  # finished searches of other databases or settings
+
+            if [e["kind"] for e in self.log.entries] == ["session start"]:
+                self.log.path.unlink(missing_ok=True)  # nothing happened here worth keeping
+            else:
+                self.log.add("load", f"Continued in session {path.name}", file=path.name)
+
+            self.log, self.backends, self.opts = log, backends, opts
+            self.state, self.runs, self.pinned, self.analysis = old["state"], old["runs"], old["pinned"], old["analysis"]
+            self.hasse_extra = {}
+            settings = old["settings"]
+            if settings.get("terms file") not in (None, "(none)"):
+                self.terms_path = Path(settings["terms file"])
+            self.settings = {**self.settings, "terms file": settings.get("terms file", self.settings["terms file"]),
+                             "backends": [b.label for b in backends], "search field": opts.field,
+                             "years": f"{opts.years[0]}-{opts.years[1]}" if opts.years else "any",
+                             "sample": f"{opts.sample} per query, {opts.sort} order"}
+            log.add("resume", f"Session resumed with {len(self.state)} block(s) and {len(self.runs)} run(s), "
+                    f"searching {', '.join(b.label for b in backends)}{note}",
+                    settings=self.settings, state=copy.deepcopy(self.state), strategy=strategy_text(self.state),
+                    databases=[b.name for b in backends], options=_options(opts))
 
     # ------------------------------------------------------------- jobs
 
@@ -516,13 +802,71 @@ class Session:
                     self.memo[outcome.query.node] = outcome
         return {q.node: found.get(q.node) or self.memo[q.node] for q in queries}
 
+    def _check_saved(self, items: list[tuple[Node, Outcome | None]], what: str, related: list[Node] = ()) -> None:
+        """Find which saved articles each query in `items` retrieves (an outcome of None means proved empty),
+        searching only for articles it has not been checked against. Containment answers what it can first:
+        an article a narrower query retrieves, a broader one does too, and one a broader query misses, a
+        narrower one misses. `related` are other queries whose earlier checks can be used that way."""
+        nodes = [node for node, _ in items] + list(related)
+        for backend in self.backends:
+            ids = set(self._saved_ids(backend.name))
+            if not ids:
+                continue
+            for node, outcome in items:
+                hits = self.saved_hits.setdefault((backend.name, node), {"checked": set(), "found": set()})
+                result = outcome.by_backend[backend.name].result if outcome else None
+                if not ids - hits["checked"] or (result is not None and result.error):
+                    continue
+                if result is None or not result.count:
+                    hits["checked"] |= ids
+                    continue
+                for other in nodes:
+                    known = self.saved_hits.get((backend.name, other))
+                    if other == node or not known:
+                        continue
+                    todo = ids - hits["checked"]
+                    if (found := known["found"] & todo) and covers(node, other):
+                        hits["found"] |= found
+                        hits["checked"] |= found
+                    if (missed := (known["checked"] - known["found"]) & todo) and covers(other, node):
+                        hits["checked"] |= missed
+                todo = ids - hits["checked"]
+                if not todo:
+                    continue
+                self._ensure_ready()
+                self._status(f"{what}: checking which saved articles it finds")
+                try:
+                    found = backend.find_known(node, self.opts, sorted(todo))
+                except NotImplementedError:
+                    break  # this database cannot look records up by id
+                except (HttpError, BackendError) as exc:
+                    hits["error"] = str(exc)
+                    continue
+                hits.pop("error", None)
+                hits["found"] |= found & todo
+                hits["checked"] |= todo
+
+    def _saved_fields(self, backend: str, node: Node) -> dict:
+        """What a result shows about the saved articles: how many of them the query retrieves, and which.
+        Nothing when there are none from `backend`, or the query was not checked against all of them."""
+        ids = self._saved_ids(backend)
+        hits = self.saved_hits.get((backend, node))
+        if not ids or not hits:
+            return {}
+        if ids.keys() - hits["checked"]:
+            return {"saved_total": len(ids), "saved_found": None, "saved_error": hits["error"]} if hits.get("error") else {}
+        return {"saved_total": len(ids), "saved_found": len(ids.keys() & hits["found"]),
+                "saved_hits": [ids[i] or i for i in ids if i in hits["found"]],
+                "saved_missed": [ids[i] or i for i in ids if i not in hits["found"]]}
+
     def _entry(self, item: dict, outcome: Outcome | None, scoring: list[Block]) -> dict:
         query = item["query"]
         entry = {k: v for k, v in item.items() if k != "query"}
         entry.update(label=query.label, query=to_generic(query.node), by={})
         for backend in self.backends:
+            saved = self._saved_fields(backend.name, query.node)
             if outcome is None:  # proved empty without searching
-                entry["by"][backend.name] = {"count": 0, "sent": backend.render(query.node, self.opts), "records": []}
+                entry["by"][backend.name] = {"count": 0, "sent": backend.render(query.node, self.opts), "records": [], **saved}
                 continue
             e = outcome.by_backend[backend.name]
             r = e.result
@@ -533,7 +877,7 @@ class Session:
                 "sent": r.query_sent or backend.render(query.node, self.opts),
                 "known_found": e.known_found, "known_total": len(known.indexed) if known else None,
                 "known_missed": e.known_missed, "on_topic": on_topic,
-                "records": [_record(x) for x in r.records],
+                "records": [_record(x) for x in r.records], **saved,
             }
         return entry
 
@@ -542,6 +886,8 @@ class Session:
         plan = self.plan(state, base_n)
         blocks = _blocks(state)
         outcomes = self._search([i["query"] for i in plan if not i.get("proved_empty")], blocks, "Running")
+        self._check_saved([(i["query"].node, None if i.get("proved_empty") else outcomes[i["query"].node]) for i in plan],
+                          "Running", [self.runs[base_n]] if base_n is not None else [])
         queries = [self._entry(i, outcomes.get(i["query"].node) if not i.get("proved_empty") else None, blocks) for i in plan]
         entry = self.log.add("run", _run_summary(queries, self.backends, base_n), baseline=base_n,
                              strategy=strategy_text(state), state=state, queries=queries, **self._budget())
@@ -553,6 +899,7 @@ class Session:
         queries = self.analysis_queries(state, name)
         scoring = with_candidates(blocks)
         outcomes = self._search(queries, scoring, f"Analyzing [{name}]")
+        self._check_saved([(q.node, outcomes[q.node]) for q in queries], f"Analyzing [{name}]")
         # refine() returns the full strategy first, then "FULL minus <string>" and "added by <string>" queries
         rows = [self._entry({"role": "full" if i == 0 else "minus" if q.label.startswith("FULL minus ") else "adds", "query": q},
                             outcomes[q.node], scoring)
@@ -562,14 +909,19 @@ class Session:
         for row in rows[1:]:
             text = row["label"].split(" ", 2)[2]  # "FULL minus <string>" / "added by <string>"
             row["term"] = text
-            by = {}
+            by, saved = {}, {}
             for backend in self.backends:
-                count, base = row["by"][backend.name]["count"], full["by"][backend.name]["count"]
+                r, base = row["by"][backend.name], full["by"][backend.name]
+                count = r["count"]
                 if row["role"] == "minus":
-                    row["by"][backend.name]["lost"] = by[backend.name] = None if count is None or base is None else base - count
+                    r["lost"] = by[backend.name] = None if count is None or base["count"] is None else base["count"] - count
+                    if r.get("saved_found") is not None and base.get("saved_found") is not None:
+                        r["saved_lost"] = saved[backend.name] = base["saved_found"] - r["saved_found"]
                 else:
                     by[backend.name] = count
-            effects[text] = {"kind": "lost" if row["role"] == "minus" else "adds", "by": by}
+                    if r.get("saved_found") is not None:
+                        saved[backend.name] = r["saved_found"]
+            effects[text] = {"kind": "lost" if row["role"] == "minus" else "adds", "by": by, **({"saved": saved} if saved else {})}
         target = next(b for b in blocks if b.name == name)
         for r in find_redundant([target]):
             effects.setdefault(r.text, {"kind": "covered", "reason": r.reason, "by": {}})
@@ -585,20 +937,24 @@ class Session:
 
     def _hasse_parts(self, n: int) -> tuple[dict, list[dict], list[tuple[str, Node, str]]]:
         """Run or analysis `n`, the searches it made that its diagram shows, and the other nodes of the
-        diagram: each block and each switched-on string of its strategy not already among those searches."""
+        diagram: each block, each switched-on string and each combination of blocks (see
+        `_block_combinations`) of its strategy not already among those searches."""
         e = self.log.get(n)
         if e["kind"] not in ("run", "analyze"):
             raise UIError(f"#{n} is not a run or an analysis")
         # a run's "added"/"lost" searches compare with another run's strategy, so they are left out
         searched = [q for q in (e["queries"] if e["kind"] == "run" else e["rows"]) if q["role"] in HASSE_ROLES]
         if n not in self.hasse_extra:  # log entries never change, so this is worked out once
+            blocks = _blocks(e["state"])
+            nodes = [(block.label, block.node, "blocks") for block in blocks]
+            nodes += [(to_generic(t), t, "strings") for block in blocks for t in block.terms]
+            nodes += _block_combinations(blocks)
             seen, extra = {q["query"] for q in searched}, []
-            for block in _blocks(e["state"]):
-                for label, node, strategy in [(block.label, block.node, "blocks"), *((to_generic(t), t, "strings") for t in block.terms)]:
-                    text = to_generic(node)
-                    if text not in seen:
-                        seen.add(text)
-                        extra.append((label, node, strategy))
+            for label, node, strategy in nodes:
+                text = to_generic(node)
+                if text not in seen:
+                    seen.add(text)
+                    extra.append((label, node, strategy))
             self.hasse_extra[n] = extra
         return e, searched, self.hasse_extra[n]
 
@@ -630,7 +986,7 @@ class Session:
         outcomes = self._search(queries, scoring, f"Hasse diagram #{n}")
         rows = [self._entry({"role": q.strategy, "query": q}, outcomes[q.node], scoring) for q in queries]
         failed = sum(any(r.get("error") for r in row["by"].values()) for row in rows)
-        self.log.add("hasse", f"Searched {len(rows)} block(s) and string(s) on their own for the Hasse diagram of #{n}"
+        self.log.add("hasse", f"Searched {len(rows)} block(s), string(s) and block combination(s) for the Hasse diagram of #{n}"
                      + (f"; {failed} failed" if failed else ""), of=n, queries=rows, **self._budget())
 
     def hasse_wait_html(self, n: int, theme: str) -> str:
@@ -649,12 +1005,12 @@ class Session:
 .bar span {{ display: block; height: 100%; width: {pct}%; background: {colors['ramp'][4]}; }}
 p {{ color: {colors['ink2']}; }}</style></head>
 <body><h1 style="font-size: 20px">Hasse diagram #{n}</h1>
-<p>Searching the blocks and strings not yet searched on their own, so every node has a count. The diagram appears here when they are done.</p>
+<p>Searching the blocks, strings and block combinations not yet searched, so every node has a count. The diagram appears here when they are done.</p>
 <p>{html.escape(job.get('message') or 'Starting')}</p><div class="bar"><span></span></div></body></html>"""
 
     def hasse_html(self, n: int, backend: str, theme: str, plotlyjs: str) -> str:
-        """A Hasse diagram page for run or analysis `n`: its searched queries plus each block and each
-        switched-on string of its strategy. Those take their counts from any search of the same query in
+        """A Hasse diagram page for run or analysis `n`: its searched queries plus each block, each
+        switched-on string and each combination of blocks of its strategy. Those take their counts from any search of the same query in
         this session (the diagram button searches the missing ones first), and are otherwise drawn hollow."""
         from . import hasse  # plotly loads only when a diagram is asked for
 
@@ -693,6 +1049,18 @@ p {{ color: {colors['ink2']}; }}</style></head>
         self.log.add("session end", f"Session ended after {len(self.runs)} run(s)")
 
 
+def _block_combinations(blocks: list[Block]) -> list[tuple[str, Node, str]]:
+    """Every AND of 2 to all-but-one of the blocks, smallest first, so a diagram runs from single blocks
+    down to the full strategy. Sizes that would take the total past MAX_HASSE_COMBINATIONS are left out."""
+    combos: list[tuple[str, Node, str]] = []
+    for size in range(2, len(blocks)):
+        group = list(combinations(blocks, size))
+        if len(combos) + len(group) > MAX_HASSE_COMBINATIONS:
+            break
+        combos += [(" AND ".join(b.label for b in g), all_of(b.node for b in g), "block combinations") for g in group]
+    return combos
+
+
 def _short(text: str, limit: int = 200) -> str:
     """One line for a summary; the full text stays in the entry's other fields."""
     text = " ".join(str(text).split())
@@ -720,9 +1088,13 @@ def _run_summary(queries: list[dict], backends: list[Backend], base_n: int | Non
     if full.get("error"):
         return f"Run: {primary.label} failed: {_short(full['error'])}"
     text = f"Run: {primary.label} {_number(full['count'])} hits"
+    if full.get("saved_found") is not None:
+        text += f", {full['saved_found']}/{full['saved_total']} saved articles"
     if base_n is not None and "added" in by_role:
         added, lost = by_role["added"]["count"], by_role["lost"]["count"]
         text += f"; vs #{base_n}: +{_number(added)} added, -{_number(lost)} lost"
+        if by_role["lost"].get("saved_found"):
+            text += f" (incl. {by_role['lost']['saved_found']} saved)"
     elif base_n is not None:
         text += f"; same strategy as #{base_n}"
     return text
@@ -785,7 +1157,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(session.log.get(int(match.group(1))))
             elif url.path == "/api/sessions":
                 files = sorted(session.log.path.parent.glob("*.jsonl"), reverse=True)
-                self._json([{"file": f.name, "current": f == session.log.path} for f in files])
+                self._json([{"file": f.name, "current": f == session.log.path, **session_summary(f)} for f in files])
             elif url.path == "/api/log":
                 name = query.get("session", [""])[0]
                 if not name or name == session.log.path.name:
@@ -837,6 +1209,8 @@ class Handler(BaseHTTPRequestHandler):
                 session.start("analyze", body.get("block"))
             elif path == "/api/hasse":
                 session.start("hasse", n=body.get("n"))
+            elif path == "/api/load":
+                session.load(str(body.get("session", "")))
             else:
                 self._send(404, b"not found", "text/plain")
                 return
@@ -918,8 +1292,14 @@ def main(argv: list[str] | None = None) -> int:
         "sample": f"{args.sample} per query, {args.sort} order",
         "known items supplied": len(known_ids), "cache": "off" if args.no_cache else str(CACHE_DIR),
     }
+    try:
+        saved_path = args.out / SAVED_FILE
+        load_saved(saved_path)  # checked before the log is started, so a bad file leaves no empty session behind
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     log = Log(args.out / "ui" / f"{started:%Y%m%d-%H%M%S}.jsonl")
-    session = Session(state, backends, opts, known_ids, log, args.terms, settings, pool)
+    session = Session(state, backends, opts, known_ids, log, args.terms, settings, pool, saved_path)
 
     server = None
     for port in range(args.port, args.port + 10):

@@ -153,6 +153,7 @@ class EbscoHost(Backend):
     name = "ebscohost"
     label = "PsycInfo (EBSCOhost)"
     coverage = "APA PsycInfo itself, read from the EBSCOhost website in a Firefox window you log in to (see README)"
+    known_chunk = PAGE_SIZE  # find_known reads one results page per search
 
     def __init__(self, http):
         super().__init__(http)

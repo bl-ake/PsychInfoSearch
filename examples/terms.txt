@@ -1,22 +1,43 @@
 # One search string per line. [name] starts a concept block:
-# strings inside a block are ORed, blocks are ANDed.
-# AND / OR / NOT must be capitals; * truncates; unquoted multi-word lines are phrases.
+# strings inside a block areed, blocks are ANDed.
+# AND / / NOT must be capitals; * truncates; unquoted multi-word lines are phrases.
 
-[math]
-math*
-mathematics
+[Gamification]
+Gamification 
+Gamifi* 
+"Serious games" 
+"Game-based learning" 
+"Education Technology" 
+"Gamifi* intervention" 
+"Electronic learning" 
+"education* game*" 
+Kahoot 
+Mentimeter 
+Blooket 
+Gimkit 
+Geogebra 
+Boddle 
+"Computer Assisted Instruction" 
+"Digital Game-Based Learning" 
+"Game element" 
+Game-element 
+DGBL 
+Gamify 
+"Game based element" 
+"Game-based element"
 
-[gamification]
-? gamifi*
-game*
-gamifi AND game*
-"serious game"
+[Math]
+"Math* achievement"
+"Math* performance" 
+"Math* ability" 
+Math* 
+"Math* Outcomes"
 
-[software]
-electronic
-software
+[Population]
+"Middle school*" 
+"Secondary school" 
+"Grade 5" 
+"Grade 6" 
+"Grade 7" 
+"Grade 8"
 
-[population]
-? "middle school"
-student*
-"middle school" AND classroom

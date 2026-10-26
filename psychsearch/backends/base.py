@@ -57,6 +57,7 @@ class Backend:
     label = ""
     coverage = ""
     min_interval = 0.2
+    known_chunk: int | None = None  # ids find_known checks per search; None means all at once
 
     def __init__(self, http: Http):
         self.http = http

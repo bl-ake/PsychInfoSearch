@@ -10,6 +10,7 @@
   --accent: #2f5bd3; --accent-ink: #ffffff; --accent-soft: #e8eefc;
   --add: #17733f; --add-bg: #e5f3ea; --lose: #b42318; --lose-bg: #fcebe9;
   --warn: #8a5a00; --warn-bg: #fff3d1; --chip: #eaf0fb; --chip-ink: #183b8c; --code: #f2f2ee;
+  --star: #b07800; --star-bg: #fff6dc;
   --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
   color-scheme: light;
 }
@@ -19,6 +20,7 @@
     --accent: #7c9cff; --accent-ink: #0d1430; --accent-soft: #232c48;
     --add: #6fd39a; --add-bg: #173325; --lose: #ff8f84; --lose-bg: #3a1c1a;
     --warn: #f0c060; --warn-bg: #3a2f12; --chip: #232c48; --chip-ink: #c9d6ff; --code: #26262a;
+    --star: #f2c14e; --star-bg: #352c14;
     --shadow: none; color-scheme: dark;
   }
 }
@@ -27,6 +29,7 @@
   --accent: #7c9cff; --accent-ink: #0d1430; --accent-soft: #232c48;
   --add: #6fd39a; --add-bg: #173325; --lose: #ff8f84; --lose-bg: #3a1c1a;
   --warn: #f0c060; --warn-bg: #3a2f12; --chip: #232c48; --chip-ink: #c9d6ff; --code: #26262a;
+  --star: #f2c14e; --star-bg: #352c14;
   --shadow: none; color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -35,8 +38,8 @@ body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -app
 code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
-input[type=text], input:not([type]), select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
-input:focus-visible, button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type=text], input:not([type]), select, textarea { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+textarea:focus-visible, input:focus-visible, button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 h1, h2, h3 { margin: 0; font-weight: 600; }
 h2 { font-size: 15px; }
 h3 { font-size: 13.5px; }
@@ -100,6 +103,7 @@ a { color: var(--accent); }
 .btn:hover:not(:disabled) { border-color: var(--muted); }
 .btn.small { padding: 2px 8px; font-size: 12px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 8px 16px; }
+.btn.small.primary { padding: 2px 8px; }
 .icon { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 4px; }
 .icon:hover { color: var(--lose); }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -155,6 +159,25 @@ tr.full td { font-weight: 600; }
 .rec details p { margin: 6px 0 0; font-size: 13px; }
 .compact .rec { padding: 5px 0; }
 .compact .rec-title { font-weight: 500; font-size: 13px; }
+.rec { display: flex; gap: 6px; align-items: flex-start; }
+.rec-body { flex: 1; min-width: 0; }
+.star { flex: none; border: 1px solid transparent; background: none; color: var(--muted); font-size: 17px; line-height: 1; padding: 1px 3px; border-radius: 5px; }
+.star:hover { color: var(--star); border-color: var(--line); }
+.star[aria-pressed=true] { color: var(--star); }
+.rec.saved { background: var(--star-bg); border-radius: 6px; }
+.saved-n { display: block; font-size: 11.5px; font-weight: 600; color: var(--star); white-space: nowrap; }
+.saved-n.lose { color: var(--lose); }
+.badge.star { background: var(--star-bg); color: var(--star); }
+
+/* saved articles */
+#saved { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.saved-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 320px; overflow-y: auto; }
+.saved-list li { display: flex; gap: 4px; align-items: flex-start; padding: 4px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.saved-list li:first-child { border-top: 0; }
+.saved-list .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.saved-list .what a { color: var(--ink); text-decoration: none; }
+.saved-list .what a:hover { text-decoration: underline; }
+.saved-list li.elsewhere .what { opacity: .6; }
 
 /* log */
 .loghead { display: flex; align-items: center; gap: 8px; }
@@ -178,6 +201,8 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .dlg-body { padding: 8px 16px 16px; }
 .dlg-body pre { background: var(--code); padding: 8px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 420px; overflow: auto; }
 .full-log td:first-child { white-space: nowrap; }
+#string-dialog { width: min(640px, calc(100vw - 32px)); }
+#string-dialog textarea { display: block; width: 100%; resize: vertical; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
 #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(640px, calc(100vw - 32px)); background: var(--ink); color: var(--panel); padding: 10px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); display: none; z-index: 10; }
 #toast.show { display: block; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -215,6 +240,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     </div>
     <div class="row">
       <button id="save" class="btn small">Save as terms file…</button>
+      <button id="load-string" class="btn small" title="Paste a search string such as (a OR b) AND (c OR d) to make it the strategy">Load search string…</button>
       <span class="small muted">Ctrl/⌘+Enter runs</span>
     </div>
   </section>
@@ -226,8 +252,14 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   </section>
 
   <aside class="panel" id="log" aria-labelledby="log-h">
+    <section id="saved" aria-labelledby="saved-h">
+      <div class="loghead"><h2 id="saved-h">Relevant articles</h2><span id="saved-count" class="small muted"></span></div>
+      <p class="hint" id="saved-hint"></p>
+      <ol class="saved-list" id="saved-list"></ol>
+    </section>
     <div class="loghead">
       <h2 id="log-h">Recent changes</h2>
+      <button id="load-session" class="btn small" title="Carry on from an earlier session">Load session…</button>
       <button id="open-log" class="btn small">Full log</button>
     </div>
     <p class="hint" id="log-file"></p>
@@ -251,10 +283,28 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     </select>
     <label class="sr" for="log-search">Search the log</label>
     <input id="log-search" placeholder="Search the log" autocomplete="off">
+    <button id="log-load" class="btn small primary" hidden title="Show this session's strategy, runs and analyses, and carry on from where it left off">Load this session</button>
     <button id="log-download" class="btn small">Download .jsonl</button>
     <button id="log-close" class="btn small">Close</button>
   </div>
   <div class="dlg-body"><div id="log-table"></div></div>
+</dialog>
+
+<dialog id="string-dialog" aria-labelledby="string-h">
+  <form id="string-form">
+    <div class="dlg-head">
+      <h2 id="string-h">Load a search string</h2>
+      <button type="button" id="string-close" class="btn small">Cancel</button>
+    </div>
+    <div class="dlg-body stack">
+      <p class="hint">Each part joined by <b>AND</b> becomes a block (block 1, block 2, …), and each part of it joined by <b>OR</b> becomes one of its strings. Write AND and OR in capitals: lowercase and/or are read as words.</p>
+      <label class="sr" for="string-text">Search string</label>
+      <textarea id="string-text" rows="7" placeholder='(math* OR algebra) AND (game* OR gamif*) AND (student* OR "middle school")' spellcheck="false"></textarea>
+      <div id="string-error" class="error-box" hidden></div>
+      <p class="hint" id="string-note"></p>
+      <div class="row"><button id="string-load" class="btn primary">Load</button><span class="small muted">Ctrl/⌘+Enter loads</span></div>
+    </div>
+  </form>
 </dialog>
 
 <div id="toast" role="status"></div>
@@ -262,19 +312,21 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <script>
 "use strict";
 const TOKEN = "__TOKEN__";
-const EDIT_KINDS = new Set(["add term", "remove term", "toggle term", "toggle block", "add block", "remove block", "restore", "compare with", "save"]);
+const EDIT_KINDS = new Set(["add term", "remove term", "toggle term", "toggle block", "add block", "remove block", "restore", "load string", "compare with", "save", "save article", "unsave article"]);
 let S = null;                 // the latest view from the server
 let viewing = null;           // log number shown in the results panel; null follows the latest result
 let tab = null;               // backend whose records and badges are shown
 const cache = new Map();      // log number -> full entry (entries never change once written)
-let lastBlocksKey = "", lastResultKey = "", pollTimer = null, autoTimer = null, wasRunning = false;
-let logEntries = [], logSession = "";
+let lastBlocksKey = "", lastResultKey = "", lastSavedKey = "", pollTimer = null, autoTimer = null, wasRunning = false;
+let logEntries = [], logSession = "", sessions = [], logFile = "";
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const num = n => n == null ? "–" : Number(n).toLocaleString();
 const hhmm = t => (t || "").slice(11, 19);
 const label = name => (S.backends.find(b => b.name === name) || {}).label || name;
+const dbLabel = name => ((S.databases || []).find(d => d.name === name) || {}).label || label(name);
+const plural = (n, word) => `${num(n)} ${word}${n === 1 ? "" : "s"}`;
 
 async function api(path, body) {
   const opts = {headers: {"X-Token": TOKEN}};
@@ -332,6 +384,12 @@ async function startJob(path, body = {}) {
 
 async function render() {
   if (!S) return;
+  if (S.log_file !== logFile) {   // another session was loaded: its entry numbers mean different entries
+    logFile = S.log_file;
+    cache.clear();
+    viewing = null;
+    lastBlocksKey = lastResultKey = "";
+  }
   if (!tab || !S.backends.some(b => b.name === tab)) tab = S.backends[0].name;
   renderMeta();
   renderBlocks();
@@ -339,7 +397,9 @@ async function render() {
   renderRunbar();
   renderRecent();
   renderJob();
+  renderSaved();
   await Promise.all([renderChanges(), renderResult()]);
+  paintSaved();
   const running = S.job && S.job.running;
   if (running && !pollTimer) pollTimer = setInterval(refresh, 800);
   if (!running && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
@@ -363,15 +423,57 @@ function renderMeta() {
   $("log-file").textContent = `Everything is logged to ${S.log_file}`;
 }
 
+function renderSaved() {
+  const saved = S.saved || [], here = new Set(S.backends.map(b => b.name));
+  const key = JSON.stringify([saved, [...here]]);
+  if (key === lastSavedKey) return;
+  lastSavedKey = key;
+  const elsewhere = saved.filter(a => !here.has(a.database)).length;
+  $("saved-count").textContent = saved.length ? String(saved.length) : "";
+  $("saved-hint").textContent = !saved.length
+    ? "Click ☆ beside a result to save it as relevant. Each run then shows how many of the saved articles every query finds."
+    : `Each run checks how many of these every query finds, in the database each was saved from.${elsewhere ? ` ${plural(elsewhere, "article")} saved from another database ${elsewhere === 1 ? "is" : "are"} not checked here.` : ""} Kept in ${S.saved_file}.`;
+  $("saved-list").innerHTML = saved.map(a => {
+    const title = a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.title || a.id)}</a>` : esc(a.title || a.id);
+    const meta = [a.authors && a.authors.length ? a.authors[0] + (a.authors.length > 1 ? " et al." : "") : "", a.year, dbLabel(a.database)].filter(Boolean).map(esc).join(" · ");
+    return `<li class="${here.has(a.database) ? "" : "elsewhere"}"><div class="what">${title}<div class="small muted">${meta}</div></div>
+      <button class="chip-x" data-unsave="${esc(a.id)}" data-db="${esc(a.database)}" title="Remove from relevant articles" aria-label="Remove ${esc(a.title || a.id)} from relevant articles">×</button></li>`;
+  }).join("");
+}
+
+// Stars on the shown records follow the saved list without redrawing the results, so open abstracts stay open.
+function paintSaved() {
+  const saved = new Set((S.saved || []).map(a => `${a.database}|${a.id}`));
+  for (const b of document.querySelectorAll("button[data-save]")) {
+    const on = saved.has(`${b.dataset.db}|${b.dataset.save}`);
+    b.setAttribute("aria-pressed", String(on));
+    b.textContent = on ? "★" : "☆";
+    b.title = on ? "Saved as relevant: click to remove" : "Save as a relevant article";
+    b.closest(".rec").classList.toggle("saved", on);
+  }
+}
+
+function savedLine(r, where) {
+  if (r.saved_error) return `<span class="lost">saved-article check failed: ${esc(r.saved_error)}</span>`;
+  if (r.saved_found == null) return "";
+  const pct = r.saved_total ? Math.round(100 * r.saved_found / r.saved_total) : 0;
+  const missed = r.saved_missed && r.saved_missed.length
+    ? ` <details style="display:inline"><summary>${r.saved_missed.length} not found</summary><span class="muted">${esc(r.saved_missed.join("; "))}</span></details>` : "";
+  return `saved articles found${where}: <b class="saved-n" style="display:inline">★ ${r.saved_found}/${r.saved_total}</b> (${pct}%)${missed}`;
+}
+
 function badge(effect, analysis) {
   if (!effect || !analysis) return "";
   const stale = analysis.stale ? " stale" : "";
   const when = `analysis #${analysis.n}${analysis.stale ? ", before later changes" : ""}`;
   const v = effect.by ? effect.by[tab] : null;
+  const s = effect.saved ? effect.saved[tab] : null;
   if (effect.kind === "lost" && v != null)
-    return `<span class="badge ${v ? "lost" : "zero"}${stale}" title="Switching it off loses ${num(v)} hits in ${esc(label(tab))} (${when})">−${num(v)}</span>`;
+    return `<span class="badge ${v ? "lost" : "zero"}${stale}" title="Switching it off loses ${num(v)} hits in ${esc(label(tab))} (${when})">−${num(v)}</span>` +
+      (s ? `<span class="badge star${stale}" title="Switching it off loses ${plural(s, "saved article")} (${when})">★−${num(s)}</span>` : "");
   if (effect.kind === "adds" && v != null)
-    return `<span class="badge ${v ? "adds" : "zero"}${stale}" title="Switching it on would add ${num(v)} records in ${esc(label(tab))} (${when})">+${num(v)}</span>`;
+    return `<span class="badge ${v ? "adds" : "zero"}${stale}" title="Switching it on would add ${num(v)} records in ${esc(label(tab))} (${when})">+${num(v)}</span>` +
+      (s ? `<span class="badge star${stale}" title="Switching it on would add ${plural(s, "saved article")} (${when})">★+${num(s)}</span>` : "");
   return "";
 }
 
@@ -456,6 +558,7 @@ function renderRunbar() {
   $("run").textContent = running ? "Running…" : "Run";
   const parts = [];
   if (S.strategy && !S.error) parts.push(p.searches ? `${p.searches} new search${p.searches === 1 ? "" : "es"}` : "no new searches needed");
+  if (S.strategy && !S.error && p.saved_checks) parts.push(`up to ${p.saved_checks} more to check the saved articles`);
   if (p.proved_empty) parts.push(`${p.proved_empty} answered without searching`);
   $("cost").textContent = parts.join(" · ");
   $("autorun-wrap").hidden = !S.autorun;
@@ -494,7 +597,9 @@ async function renderResult() {
   if (shown == null) {
     el.innerHTML = `<div class="empty"><h2>No results yet</h2>
       <p>Press <b>Run</b> to search the strategy on the left. After that, every run shows how many hits each block and the full strategy get, and, for the change you made, exactly which records it <b>added</b> and which it <b>lost</b>.</p>
-      <p>Use <b>Analyze</b> on a block to see what each of its strings contributes, and what each switched-off string would add.</p></div>`;
+      <p>Use <b>Analyze</b> on a block to see what each of its strings contributes, and what each switched-off string would add.</p>
+      <p>Click <b>☆</b> beside a result to save it as a relevant article. Later runs show how many of your saved articles each query finds.</p>
+      <p>Carrying on from earlier? <button class="btn small" data-load-previous>Load a previous session</button></p></div>`;
     return;
   }
   const e = await entry(shown);
@@ -530,28 +635,33 @@ function delta(now, before) {
   return `<span class="delta ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : "−"}${num(Math.abs(d))}</span>`;
 }
 
-function recHtml(r, isNew) {
+// `n` is the log entry the record comes from; the server takes the saved copy from there. Records are of the `tab` database.
+function recHtml(r, isNew, n) {
   const authors = r.authors.join("; ") + (r.more_authors ? ` +${r.more_authors}` : "");
   const meta = [authors, r.year, r.journal, r.cited_by != null ? `cited by ${num(r.cited_by)}` : "",
     r.blocks_matched ? `title/abstract matches ${r.blocks_matched} blocks` : ""].filter(Boolean).map(esc).join(" · ");
   const title = r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title || "(no title)")}</a>` : esc(r.title || "(no title)");
   const more = (r.abstract || r.subjects.length) ? `<details><summary>Abstract${r.subjects.length ? " and subjects" : ""}</summary>
       ${r.abstract ? `<p>${esc(r.abstract)}</p>` : ""}${r.subjects.length ? `<p class="small muted">Subjects: ${esc(r.subjects.join("; "))}</p>` : ""}</details>` : "";
-  return `<li class="rec"><div class="rec-title">${title}${isNew ? ` <span class="badge new" title="Not in the sample of the run compared with">new in sample</span>` : ""}</div>
-    <div class="rec-meta">${meta}</div>${more}</li>`;
+  const star = r.id ? `<button class="star" data-save="${esc(r.id)}" data-db="${esc(tab)}" data-n="${n}" aria-pressed="false" title="Save as a relevant article">☆</button>` : "";
+  return `<li class="rec">${star}<div class="rec-body"><div class="rec-title">${title}${isNew ? ` <span class="badge new" title="Not in the sample of the run compared with">new in sample</span>` : ""}</div>
+    <div class="rec-meta">${meta}</div>${more}</div></li>`;
 }
 
-function changeCard(q, kind, base) {
+function changeCard(q, kind, base, n) {
   const r = q.by[tab];
   const title = kind === "add" ? "Added by the changes" : "Lost by the changes";
   if (r.error) return `<div class="card ${kind}"><h3>${title}</h3><div class="error-box">${esc(r.error)}</div></div>`;
   const why = q.proved_empty
     ? `<p class="small muted">${kind === "add" ? "The new strategy is narrower than #" + base + ", so it cannot add records" : "The new strategy contains all of #" + base + ", so it cannot lose records"} (known without searching).</p>`
     : `<details><summary>Query</summary><code class="small">${esc(r.sent)}</code></details>`;
-  const recs = r.records.length ? `<ul class="recs compact">${r.records.map(x => recHtml(x, false)).join("")}</ul>` : "";
+  const recs = r.records.length ? `<ul class="recs compact">${r.records.map(x => recHtml(x, false, n)).join("")}</ul>` : "";
   const shown = r.records.length && r.count > r.records.length ? `<p class="small muted">Showing ${r.records.length} of ${num(r.count)}.</p>` : "";
+  const saved = r.saved_found
+    ? `<div class="${kind === "lose" ? "error-box" : "small"}">★ ${kind === "add" ? "Among them" : "Loses"} ${plural(r.saved_found, "saved article")}: ${esc((r.saved_hits || []).join("; "))}</div>`
+    : r.saved_found === 0 ? `<div class="small muted">★ none of the saved articles</div>` : "";
   return `<div class="card ${kind}"><h3>${title}</h3><div class="big">${kind === "add" ? "+" : "−"}${num(r.count)}</div>
-    <div class="small muted">records ${kind === "add" ? "in the new results that were not in" : "in"} #${base}${kind === "add" ? "" : " that are no longer found"}</div>${why}${recs}${shown}</div>`;
+    <div class="small muted">records ${kind === "add" ? "in the new results that were not in" : "in"} #${base}${kind === "add" ? "" : " that are no longer found"}</div>${saved}${why}${recs}${shown}</div>`;
 }
 
 async function runHtml(e) {
@@ -574,7 +684,9 @@ async function runHtml(e) {
       const r = q.by[b.name];
       if (!r) return `<td class="num">–</td>`;
       if (r.error) return `<td class="num" title="${esc(r.error)}"><span class="badge lost">error</span></td>`;
-      return `<td class="num">${num(r.count)}${before ? delta(r.count, before.by[b.name] && before.by[b.name].count) : (base ? `<span class="delta same">new</span>` : "")}</td>`;
+      const saved = r.saved_found != null
+        ? `<span class="saved-n" title="Finds ${r.saved_found} of the ${r.saved_total} saved articles from ${esc(b.label)}">★ ${r.saved_found}/${r.saved_total}</span>` : "";
+      return `<td class="num">${num(r.count)}${before ? delta(r.count, before.by[b.name] && before.by[b.name].count) : (base ? `<span class="delta same">new</span>` : "")}${saved}</td>`;
     }).join("");
     return `<tr class="${q.role}"><td>${q.role === "full" ? "Full strategy" : esc(q.label)}</td>${cells}</tr>`;
   }).join("");
@@ -584,6 +696,8 @@ async function runHtml(e) {
     const bits = [];
     if (r.known_total != null && r.known_found != null) bits.push(`known items found: <b>${r.known_found}/${r.known_total}</b>${r.known_missed && r.known_missed.length ? ` <span class="muted">(missing: ${esc(r.known_missed.join("; "))})</span>` : ""}`);
     if (r.on_topic != null) bits.push(`on-topic in sample: <b>${Math.round(100 * r.on_topic)}%</b>`);
+    const saved = savedLine(r, "");
+    if (saved) bits.push(saved);
     const how = r.interpretation ? `<details><summary>How ${esc(b.label)} read the query</summary><code class="small">${esc(r.interpretation)}</code></details>` : "";
     return bits.length || how ? `<div class="small">${bits.length ? `${esc(b.label)}: ${bits.join(" · ")}` : ""}${how}</div>` : "";
   }).join("");
@@ -594,14 +708,14 @@ async function runHtml(e) {
   let change;
   if (!base) change = `<p class="small muted">This is the first run. From the next run on, this space shows exactly which records your changes added and lost.</p>`;
   else if (!added) change = `<p class="small muted">Same strategy as run #${base.n}: nothing changed.</p>`;
-  else change = `<div class="cards">${changeCard(added, "add", base.n)}${changeCard(lost, "lose", base.n)}</div>`;
+  else change = `<div class="cards">${changeCard(added, "add", base.n, e.n)}${changeCard(lost, "lose", base.n, e.n)}</div>`;
 
   const r = full.by[tab] || {records: []};
   const baseFull = find(base, full);
   const baseIds = baseFull && baseFull.by[tab] ? new Set(baseFull.by[tab].records.map(x => x.id)) : null;
   const sameAsBase = !added;
   const recs = r.records.length
-    ? `<ul class="recs">${r.records.map(x => recHtml(x, baseIds && !sameAsBase && !baseIds.has(x.id))).join("")}</ul>`
+    ? `<ul class="recs">${r.records.map(x => recHtml(x, baseIds && !sameAsBase && !baseIds.has(x.id), e.n)).join("")}</ul>`
     : `<p class="small muted">${r.error ? "" : "No records."}</p>`;
 
   return `${head}
@@ -620,20 +734,29 @@ function analysisHtml(e) {
   const cell = (row, b) => {
     const r = row.by[b.name] || {};
     if (r.error) return `<td class="num" title="${esc(r.error)}"><span class="badge lost">error</span></td>`;
-    if (row.role === "minus") return `<td class="num">${r.lost == null ? "–" : `<span class="delta ${r.lost ? "down" : "same"}">−${num(r.lost)}</span>`}</td>`;
-    return `<td class="num"><span class="delta ${r.count ? "up" : "same"}">+${num(r.count)}</span></td>`;
+    if (row.role === "minus") {
+      const saved = r.saved_lost ? `<span class="saved-n lose" title="Switching it off loses ${plural(r.saved_lost, "saved article")}">★ −${r.saved_lost}</span>` : "";
+      return `<td class="num">${r.lost == null ? "–" : `<span class="delta ${r.lost ? "down" : "same"}">−${num(r.lost)}</span>`}${saved}</td>`;
+    }
+    const saved = r.saved_found ? `<span class="saved-n" title="Switching it on would add ${plural(r.saved_found, "saved article")}">★ +${r.saved_found}</span>` : "";
+    return `<td class="num"><span class="delta ${r.count ? "up" : "same"}">+${num(r.count)}</span>${saved}</td>`;
   };
   const rows = e.rows.slice(1).map(row => {
     const what = row.role === "minus" ? "lost if switched off" : "would add if switched on";
     const sample = row.role === "adds" && row.by[tab] && row.by[tab].records.length
-      ? `<details><summary>Records it would add (${esc(label(tab))})</summary><ul class="recs compact">${row.by[tab].records.map(x => recHtml(x, false)).join("")}</ul></details>` : "";
+      ? `<details><summary>Records it would add (${esc(label(tab))})</summary><ul class="recs compact">${row.by[tab].records.map(x => recHtml(x, false, e.n)).join("")}</ul></details>` : "";
     return `<tr><td><code>${esc(row.term)}</code> <span class="small muted">${what}</span>${sample}</td>${S.backends.map(b => cell(row, b)).join("")}</tr>`;
   });
   for (const [term, eff] of Object.entries(e.effects)) {
     if (eff.kind === "covered") rows.push(`<tr><td><code>${esc(term)}</code> <span class="small muted">adds nothing: ${esc(eff.reason)} (not searched)</span></td>${S.backends.map(() => `<td class="num"><span class="delta same">0</span></td>`).join("")}</tr>`);
     if (eff.kind === "only") rows.push(`<tr><td><code>${esc(term)}</code> <span class="small muted">the block's only string: switching it off leaves the block out</span></td>${S.backends.map(() => `<td class="num">–</td>`).join("")}</tr>`);
   }
-  const fullCells = S.backends.map(b => `<td class="num">${full.by[b.name] && full.by[b.name].error ? `<span class="badge lost" title="${esc(full.by[b.name].error)}">error</span>` : num(full.by[b.name] && full.by[b.name].count)}</td>`).join("");
+  const fullCells = S.backends.map(b => {
+    const r = full.by[b.name] || {};
+    if (r.error) return `<td class="num"><span class="badge lost" title="${esc(r.error)}">error</span></td>`;
+    const saved = r.saved_found != null ? `<span class="saved-n" title="Finds ${r.saved_found} of the ${r.saved_total} saved articles from ${esc(b.label)}">★ ${r.saved_found}/${r.saved_total}</span>` : "";
+    return `<td class="num">${num(r.count)}${saved}</td>`;
+  }).join("");
   return `<div class="run-head"><h2>Analysis #${e.n} of [${esc(e.block)}]</h2><span class="small muted">${esc(e.time.replace("T", " "))}</span>
       <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}${hasseButton(e.n)}</div></div>
     <p class="strategy-line">${esc(e.strategy)}</p>
@@ -646,12 +769,27 @@ function analysisHtml(e) {
 
 // ------------------------------------------------------------------- log
 
-async function openLog() {
-  const sessions = await api("/api/sessions");
-  logSession = (sessions.find(s => s.current) || sessions[0] || {}).file || "";
-  $("log-session").innerHTML = sessions.map(s => `<option value="${esc(s.file)}" ${s.file === logSession ? "selected" : ""}>${esc(s.file)}${s.current ? " (this session)" : ""}</option>`).join("");
+function sessionLabel(s) {
+  const when = s.started ? new Date(s.started).toLocaleString(undefined, {year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : s.file;
+  return `${when} · ${s.runs} run${s.runs === 1 ? "" : "s"}${s.current ? " (this session)" : ""}`;
+}
+async function openLog(previous = false) {
+  try { sessions = await api("/api/sessions"); } catch (e) { toast(e.message); return; }
+  const pick = previous ? sessions.find(s => !s.current && s.loadable) : sessions.find(s => s.current);
+  if (previous && !pick) { toast("There are no earlier sessions to load yet."); return; }
+  logSession = (pick || sessions[0] || {}).file || "";
+  $("log-session").innerHTML = sessions.map(s => `<option value="${esc(s.file)}" ${s.file === logSession ? "selected" : ""}>${esc(sessionLabel(s))}</option>`).join("");
   await loadLog();
   $("log-dialog").showModal();
+}
+async function loadSession() {
+  const s = sessions.find(x => x.file === logSession);
+  if (!s) return;
+  if (S.log_count > 1 && !confirm(`Load the session from ${sessionLabel(s)}?\n\nThe page will show its strategy, runs and analyses, and what you do next is added to its log. This session's log is kept.`)) return;
+  try { S = await api("/api/load", {session: s.file}); } catch (e) { toast(e.message); return; }
+  $("log-dialog").close();
+  await render();
+  toast(`Loaded the session from ${sessionLabel(s)}.`);
 }
 async function loadLog() {
   try { logEntries = await api(`/api/log?session=${encodeURIComponent(logSession)}`); }
@@ -661,6 +799,10 @@ async function loadLog() {
 function renderLog() {
   const kind = $("log-kind").value, needle = $("log-search").value.toLowerCase();
   const current = S && logSession === S.log_file.split("/").pop();
+  const session = sessions.find(s => s.file === logSession);
+  $("log-load").hidden = current || !session || !session.loadable;
+  const ends = !current && session && session.loadable
+    ? `<p class="small">Loading it picks up with: <span class="strategy-line">${esc(session.strategy || "(nothing switched on)")}</span></p>` : "";
   const keep = logEntries.filter(e =>
     (!kind || (kind === "edit" ? EDIT_KINDS.has(e.kind) : kind === "problem" ? (e.kind === "error" || e.kind === "rejected") : e.kind === kind)) &&
     (!needle || JSON.stringify(e).toLowerCase().includes(needle)));
@@ -671,7 +813,7 @@ function renderLog() {
       <td>${esc(e.summary)}${e.strategy !== undefined ? `<div class="strategy-line">${esc(e.strategy || "(nothing switched on)")}</div>` : ""}${actions}
       <details data-n="${e.n}"><summary>Details</summary><pre></pre></details></td></tr>`;
   }).join("");
-  $("log-table").innerHTML = `<p class="small muted">${keep.length} of ${logEntries.length} entries, newest first.</p>
+  $("log-table").innerHTML = `${ends}<p class="small muted">${keep.length} of ${logEntries.length} entries, newest first.</p>
     <div class="table-wrap"><table class="full-log"><thead><tr><th>#</th><th>Time</th><th>Kind</th><th>What happened</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 $("log-table").addEventListener("toggle", ev => {
@@ -684,7 +826,9 @@ $("log-kind").addEventListener("change", renderLog);
 $("log-search").addEventListener("input", renderLog);
 $("log-session").addEventListener("change", ev => { logSession = ev.target.value; loadLog(); });
 $("log-close").addEventListener("click", () => $("log-dialog").close());
-$("open-log").addEventListener("click", openLog);
+$("open-log").addEventListener("click", () => openLog());
+$("load-session").addEventListener("click", () => openLog(true));
+$("log-load").addEventListener("click", loadSession);
 $("log-download").addEventListener("click", () => {
   const blob = new Blob([logEntries.map(e => JSON.stringify(e)).join("\n") + "\n"], {type: "application/x-ndjson"});
   const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), download: logSession || "psychsearch-log.jsonl"});
@@ -707,8 +851,14 @@ document.addEventListener("click", ev => {
     return act({type: "remove block", block: +d.b});
   }
   if (d.act === "analyze") return startJob("/api/analyze", {block: +d.b});
+  if (d.save !== undefined) {
+    const on = t.getAttribute("aria-pressed") === "true";
+    return act(on ? {type: "unsave article", database: d.db, id: d.save} : {type: "save article", n: +d.n, database: d.db, id: d.save});
+  }
+  if (d.unsave !== undefined) return act({type: "unsave article", database: d.db, id: d.unsave});
   if (d.view !== undefined) { viewing = +d.view === S.latest_result ? null : +d.view; lastResultKey = ""; return render(); }
   if (d.viewLatest !== undefined) { viewing = null; return render(); }
+  if (d.loadPrevious !== undefined) return openLog(true);
   if (d.hasse !== undefined) return openHasse(+d.hasse);
   if (d.restore !== undefined) return act({type: "restore", run: +d.restore});
   if (d.compare !== undefined) return act({type: "compare with", run: +d.compare});
@@ -718,6 +868,7 @@ document.addEventListener("click", ev => {
 document.addEventListener("submit", ev => {
   ev.preventDefault();
   const form = ev.target, input = form.querySelector("input");
+  if (form.id === "string-form") return loadString();
   if (form.id === "add-block") {
     const count = S.blocks.length;
     act({type: "add block", name: input.value}).then(() => {
@@ -743,8 +894,38 @@ $("save").addEventListener("click", () => {
   if (path) act({type: "save", path});
 });
 document.addEventListener("keydown", ev => {
-  if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey) && !$("run").disabled) { ev.preventDefault(); startJob("/api/run"); }
+  if (ev.key !== "Enter" || !(ev.metaKey || ev.ctrlKey)) return;
+  if ($("string-dialog").open) { ev.preventDefault(); $("string-form").requestSubmit(); return; }
+  if (!$("run").disabled) { ev.preventDefault(); startJob("/api/run"); }
 });
+
+// Paste a search string: its AND parts become blocks and their OR parts strings (the server splits it).
+$("load-string").addEventListener("click", () => {
+  const filled = S.blocks.filter(b => b.terms.length).length;
+  $("string-note").textContent = filled
+    ? `This replaces the current ${filled} block${filled === 1 ? "" : "s"}. Earlier runs stay in the log, and Restore brings their strategies back.` : "";
+  $("string-load").textContent = filled ? "Replace strategy" : "Load";
+  $("string-error").hidden = true;
+  $("string-dialog").showModal();
+  $("string-text").focus();
+});
+$("string-close").addEventListener("click", () => $("string-dialog").close());
+async function loadString() {
+  const err = $("string-error");
+  try {
+    S = await api("/api/action", {type: "load string", text: $("string-text").value});
+  } catch (e) {
+    err.textContent = e.message;   // shown in the dialog: a toast would sit behind it
+    err.hidden = false;
+    return refresh();              // the rejection is logged
+  }
+  $("string-dialog").close();
+  $("string-text").value = "";
+  await render();
+  scheduleAutorun();
+  const strings = S.blocks.reduce((n, b) => n + b.terms.length, 0);
+  toast(`Loaded ${S.blocks.length} block${S.blocks.length === 1 ? "" : "s"} with ${strings} string${strings === 1 ? "" : "s"}.`);
+}
 
 let autorun = false;
 try { autorun = localStorage.getItem("psychsearch-autorun") === "1"; } catch (e) {}

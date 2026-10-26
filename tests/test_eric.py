@@ -26,3 +26,15 @@ def test_date_sort_is_done_locally(monkeypatch):
 
     result = Eric(FakeHttp()).search(parse("x"), SearchOptions(sample=2, sort="date"))
     assert [r.year for r in result.records] == [2020, 2010] and "cannot sort by date" in result.warnings[0]
+
+
+def test_find_known_looks_up_eric_ids_within_the_query():
+    sent = []
+
+    class FakeHttp:
+        def get(self, url, params, **kw):
+            sent.append(params["search"])
+            return '{"response": {"numFound": 1, "docs": [{"id": "EJ2"}]}}', {}
+
+    found = Eric(FakeHttp()).find_known(parse("game*"), SearchOptions(field="title"), ["EJ1", "EJ2", "not-an-id"])
+    assert found == {"EJ2"} and sent == ["(title:(game*)) AND id:(EJ1 OR EJ2)"]

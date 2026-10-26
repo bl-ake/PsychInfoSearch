@@ -17,6 +17,7 @@ class EuropePMC(Backend):
     label = "Europe PMC"
     coverage = "PubMed plus preprints (incl. PsyArXiv), Agricola and patents; citation counts"
     min_interval = 0.25
+    known_chunk = KNOWN_CHUNK
 
     def render(self, node: Node, opts: SearchOptions) -> str:
         query = to_europepmc(node, opts.field)

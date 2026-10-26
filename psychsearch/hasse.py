@@ -46,6 +46,7 @@ SYMBOLS = {
     "custom": "star",
     # psychsearch-ui runs and analyses
     "full strategy": "diamond",
+    "block combinations": "octagon",
     "strings": "circle",
     "added": "triangle-up",
     "lost": "triangle-down",

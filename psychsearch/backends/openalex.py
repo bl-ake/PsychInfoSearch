@@ -29,6 +29,7 @@ class OpenAlex(Backend):
     label = "OpenAlex"
     coverage = "broadest: ~all scholarly works incl. psychology/social-science journals outside MEDLINE, books, theses"
     min_interval = 0.15
+    known_chunk = KNOWN_CHUNK
 
     def __init__(self, http):
         super().__init__(http)

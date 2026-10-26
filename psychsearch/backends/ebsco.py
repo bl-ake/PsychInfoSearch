@@ -37,6 +37,7 @@ class Ebsco(Backend):
     label = "PsycInfo (EBSCO API)"
     coverage = "APA PsycInfo itself, via your institution's EBSCO API profile (credentials required, see README)"
     min_interval = 0.2
+    known_chunk = KNOWN_CHUNK
 
     def __init__(self, http):
         super().__init__(http)
