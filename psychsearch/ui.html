@@ -246,6 +246,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
       <option value="edit">Edits</option>
       <option value="run">Runs</option>
       <option value="analyze">Analyses</option>
+      <option value="hasse">Hasse diagram searches</option>
       <option value="problem">Errors and rejections</option>
     </select>
     <label class="sr" for="log-search">Search the log</label>
@@ -486,7 +487,7 @@ function renderJob() {
 
 async function renderResult() {
   const shown = viewing ?? S.latest_result;
-  const key = `${shown}|${tab}`;
+  const key = `${shown}|${tab}|${(S.hasse_costs || {})[shown] || 0}|${!!(S.job && S.job.running)}`;
   if (key === lastResultKey) return;
   lastResultKey = key;
   const el = $("result");
@@ -501,13 +502,19 @@ async function renderResult() {
 }
 
 function hasseButton(n) {
-  return `<button class="btn small" data-hasse="${n}" title="Open a diagram of these queries ordered by containment (narrower below broader), coloured by hits, in a new tab">Hasse diagram</button>`;
+  const cost = (S.hasse_costs || {})[n] || 0;
+  const first = cost ? `, after searching the ${cost} block${cost === 1 ? "" : "s"} and string${cost === 1 ? "" : "s"} not yet searched on their own` : "";
+  return `<button class="btn small" data-hasse="${n}" ${cost && S.job && S.job.running ? "disabled" : ""}
+    title="Open a diagram of these queries ordered by containment (narrower below broader), coloured by hits, in a new tab${first}">Hasse diagram${cost ? ` · ${cost} search${cost === 1 ? "" : "es"}` : ""}</button>`;
 }
-function openHasse(n) {
+async function openHasse(n) {
   const root = document.documentElement.dataset.theme;
   const theme = root || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const q = new URLSearchParams({backend: tab, theme, token: TOKEN});
+  // search the nodes that have no count yet; the new tab waits for that, then draws
+  try { S = await api("/api/hasse", {n}); } catch (e) { toast(e.message); return refresh(); }
   window.open(`/hasse/${n}?${q}`, "_blank", "noopener");
+  await render();
 }
 
 function tabsHtml() {

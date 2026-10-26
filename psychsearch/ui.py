@@ -8,7 +8,8 @@ strategy and each block, and, when a previous run exists, the records the change
 A side that containment shows must be empty (adding an OR string cannot lose records) is reported
 as 0 without searching. "Analyze" on a block shows what each of its strings contributes and what
 each switched-off string would add (the same queries as ``--refine``). "Hasse diagram" on a run or
-an analysis opens its queries, blocks and strings ordered by containment (see ``hasse.py``) in a new tab.
+an analysis opens its queries, blocks and strings ordered by containment (see ``hasse.py``) in a new tab,
+first searching any block or string that has not been searched on its own, so every node has a count.
 
 Every action and every result is appended to ``results/ui/<timestamp>.jsonl``. The page shows the
 recent entries and, on request, the full log of this or an earlier session. Any earlier run can be
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import html
 import json
 import re
 import secrets
@@ -51,6 +53,9 @@ PAGE = Path(__file__).with_name("ui.html")
 PLOTLY_JS = "/plotly.min.js"  # served from the installed plotly, so diagrams work offline
 RECENT = 12  # log entries shown beside the results
 LINE = 1000  # synthetic line numbers for find_redundant: block index * LINE + string index
+# searches of a run or analysis that its Hasse diagram shows, and the diagram's name for each
+HASSE_ROLES = {"full": "full strategy", "block": "blocks", "minus": "full minus a string", "adds": "added by a string"}
+JOB_NAMES = {"run": "Run", "analyze": "Analyze", "hasse": "Searching for the Hasse diagram"}
 
 
 class UIError(Exception):
@@ -210,6 +215,7 @@ class Session:
         self.runs: dict[int, Node] = {}  # run log number -> its full strategy
         self.pinned: int | None = None  # run chosen as the comparison point; None means the latest run
         self.analysis: dict[str, dict] = {}  # block name -> latest analysis
+        self.hasse_extra: dict[int, list] = {}  # run/analysis log number -> diagram nodes it did not search
         self.job: dict = {"running": False}
         self.settings = settings
         log.add("session start", f"Session started with {len(state)} block(s), searching {', '.join(b.label for b in backends)}",
@@ -266,6 +272,14 @@ class Session:
             except QueryError as exc:
                 error = str(exc)
             current = strategy_text(state)
+            earlier = self._earlier()
+            hasse_costs = {}  # searches each diagram button would run first
+            for e in self.log.entries:
+                if e["kind"] in ("run", "analyze"):
+                    try:
+                        hasse_costs[e["n"]] = len(self.hasse_missing(e["n"], earlier)) * len(self.backends)
+                    except (UIError, QueryError):
+                        pass
             blocks = []
             for bi, b in enumerate(state):
                 analysis = self.analysis.get(b["name"])
@@ -297,6 +311,7 @@ class Session:
                 "settings": [[k, v] for k, v in self.settings.items() if k not in ("backends", "terms file")]
                             + [["terms file", self.settings["terms file"]]],
                 "baseline": self.baseline(),
+                "hasse_costs": hasse_costs,
                 "pinned": self.pinned is not None,
                 "recent": [_brief(e) for e in self.log.entries[-RECENT:]][::-1],
                 "log_count": len(self.log.entries),
@@ -421,12 +436,21 @@ class Session:
 
     # ------------------------------------------------------------- jobs
 
-    def start(self, kind: str, block: int | None = None) -> None:
+    def start(self, kind: str, block: int | None = None, n: int | None = None) -> bool:
+        """Start a background job; False if there is nothing to search (only possible for "hasse")."""
         with self.lock:
+            if kind == "hasse":
+                if not isinstance(n, int):
+                    raise UIError("say which run or analysis to draw")
+                queries = self.hasse_missing(n)
+                if not queries:
+                    return False  # every node already has a count: draw at once, even while another job runs
             if self.job.get("running"):
                 raise UIError("a search is already running; wait for it to finish")
             state = copy.deepcopy(self.state)
-            if kind == "run":
+            if kind == "hasse":
+                work = lambda: self._hasse_search(n, queries)
+            elif kind == "run":
                 if full_node(state) is None:
                     raise UIError("switch on at least one string first")
                 work = lambda: self._run(state)
@@ -436,18 +460,19 @@ class Session:
                 work = lambda: self._analyze(state, name)
             else:
                 raise UIError(f"unknown job {kind!r}")
-            self.job = {"running": True, "kind": kind, "done": 0, "total": 0, "message": "Starting"}
+            self.job = {"running": True, "kind": kind, "done": 0, "total": 0, "message": "Starting", **({"n": n} if kind == "hasse" else {})}
         threading.Thread(target=self._guard, args=(kind, work), daemon=True).start()
+        return True
 
     def _guard(self, kind: str, work) -> None:
         try:
             work()
             self.job = {"running": False}
         except (BackendError, HttpError, QueryError, UIError) as exc:
-            self.log.add("error", f"{kind.capitalize()} failed: {_short(exc)}", error=str(exc))
+            self.log.add("error", f"{JOB_NAMES.get(kind, kind)} failed: {_short(exc)}", error=str(exc))
             self.job = {"running": False, "error": str(exc)}
         except Exception as exc:  # keep the page alive and say what happened
-            self.log.add("error", f"{kind.capitalize()} failed: {type(exc).__name__}: {_short(exc)}", error=traceback.format_exc())
+            self.log.add("error", f"{JOB_NAMES.get(kind, kind)} failed: {type(exc).__name__}: {_short(exc)}", error=traceback.format_exc())
             self.job = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def _status(self, message: str, done: int | None = None, total: int | None = None) -> None:
@@ -558,20 +583,84 @@ class Session:
         with self.lock:
             self.analysis[name] = {"n": entry["n"], "strategy": strategy_text(state), "terms": effects}
 
-    def hasse_html(self, n: int, backend: str, theme: str, plotlyjs: str) -> str:
-        """A Hasse diagram page for run or analysis `n`: its searched queries plus each block and each
-        switched-on string of its strategy. A string not searched on its own takes its counts from any
-        search of the same query in this session, and is otherwise drawn hollow."""
-        from . import hasse  # plotly loads only when a diagram is asked for
-
+    def _hasse_parts(self, n: int) -> tuple[dict, list[dict], list[tuple[str, Node, str]]]:
+        """Run or analysis `n`, the searches it made that its diagram shows, and the other nodes of the
+        diagram: each block and each switched-on string of its strategy not already among those searches."""
         e = self.log.get(n)
         if e["kind"] not in ("run", "analyze"):
             raise UIError(f"#{n} is not a run or an analysis")
+        # a run's "added"/"lost" searches compare with another run's strategy, so they are left out
+        searched = [q for q in (e["queries"] if e["kind"] == "run" else e["rows"]) if q["role"] in HASSE_ROLES]
+        if n not in self.hasse_extra:  # log entries never change, so this is worked out once
+            seen, extra = {q["query"] for q in searched}, []
+            for block in _blocks(e["state"]):
+                for label, node, strategy in [(block.label, block.node, "blocks"), *((to_generic(t), t, "strings") for t in block.terms)]:
+                    text = to_generic(node)
+                    if text not in seen:
+                        seen.add(text)
+                        extra.append((label, node, strategy))
+            self.hasse_extra[n] = extra
+        return e, searched, self.hasse_extra[n]
+
+    def _earlier(self) -> dict[str, dict]:
+        """Query text -> backend -> outcome, from every error-free search logged in this session."""
+        earlier: dict[str, dict] = {}
+        for other in self.log.entries:
+            if other["kind"] in ("run", "analyze", "hasse"):
+                for q in other.get("queries") or other.get("rows") or []:
+                    found = {name: r for name, r in q["by"].items() if not r.get("error")}
+                    if found:
+                        earlier[q["query"]] = {**earlier.get(q["query"], {}), **found}
+        return earlier
+
+    def hasse_missing(self, n: int, earlier: dict[str, dict] | None = None) -> list[Query]:
+        """The nodes of run or analysis `n`'s diagram that the current databases have not searched yet.
+        Empty if `n` searched other databases (a switch since), since searching now would not fill its diagram."""
+        e, searched, extra = self._hasse_parts(n)
+        if any(b.name not in searched[0]["by"] for b in self.backends):
+            return []
+        earlier = self._earlier() if earlier is None else earlier
+        return [Query(label, strategy, node) for label, node, strategy in extra
+                if any(b.name not in earlier.get(to_generic(node), {}) for b in self.backends)]
+
+    def _hasse_search(self, n: int, queries: list[Query]) -> None:
+        e = self.log.get(n)
+        blocks = _blocks(e["state"])
+        scoring = with_candidates(blocks) if e["kind"] == "analyze" else blocks
+        outcomes = self._search(queries, scoring, f"Hasse diagram #{n}")
+        rows = [self._entry({"role": q.strategy, "query": q}, outcomes[q.node], scoring) for q in queries]
+        failed = sum(any(r.get("error") for r in row["by"].values()) for row in rows)
+        self.log.add("hasse", f"Searched {len(rows)} block(s) and string(s) on their own for the Hasse diagram of #{n}"
+                     + (f"; {failed} failed" if failed else ""), of=n, queries=rows, **self._budget())
+
+    def hasse_wait_html(self, n: int, theme: str) -> str:
+        """Shown in the diagram's tab while its searches run; it reloads itself until they are done."""
+        from . import hasse
+
+        colors = hasse.THEMES.get(theme, hasse.THEMES["light"])
+        job = self.job
+        done, total = job.get("done", 0), job.get("total", 0)
+        pct = round(100 * done / total) if total else 0
+        return f"""<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Hasse diagram #{n}</title>
+<meta name="color-scheme" content="{'dark' if theme == 'dark' else 'light'}">
+<style>body {{ margin: 0; padding: 48px 24px; background: {colors['surface']}; color: {colors['ink']}; font-family: {hasse.FONT}; }}
+.bar {{ max-width: 480px; height: 6px; border-radius: 3px; background: {colors['edge']}; overflow: hidden; }}
+.bar span {{ display: block; height: 100%; width: {pct}%; background: {colors['ramp'][4]}; }}
+p {{ color: {colors['ink2']}; }}</style></head>
+<body><h1 style="font-size: 20px">Hasse diagram #{n}</h1>
+<p>Searching the blocks and strings not yet searched on their own, so every node has a count. The diagram appears here when they are done.</p>
+<p>{html.escape(job.get('message') or 'Starting')}</p><div class="bar"><span></span></div></body></html>"""
+
+    def hasse_html(self, n: int, backend: str, theme: str, plotlyjs: str) -> str:
+        """A Hasse diagram page for run or analysis `n`: its searched queries plus each block and each
+        switched-on string of its strategy. Those take their counts from any search of the same query in
+        this session (the diagram button searches the missing ones first), and are otherwise drawn hollow."""
+        from . import hasse  # plotly loads only when a diagram is asked for
+
+        e, searched, extra = self._hasse_parts(n)
         if theme not in hasse.THEMES:
             theme = "light"
-        names = {"full": "full strategy", "block": "blocks", "minus": "full minus a string", "adds": "added by a string"}
-        # a run's "added"/"lost" searches compare with another run's strategy, so they are left out
-        searched = [q for q in (e["queries"] if e["kind"] == "run" else e["rows"]) if q["role"] in names]
         if backend not in searched[0]["by"]:
             raise UIError(f"#{n} did not search {backend!r}")
 
@@ -579,22 +668,13 @@ class Session:
             return {name: {"result": {"count": r.get("count"), "error": r.get("error")}, "known_found": r.get("known_found"),
                            "known_total": r.get("known_total"), "on_topic": r.get("on_topic")} for name, r in by.items()}
 
-        earlier: dict[str, dict] = {}  # query text -> outcomes, from any search in this session
-        for other in self.log.entries:
-            for q in other.get("queries") or other.get("rows") or []:
-                if other["kind"] in ("run", "analyze") and not any(r.get("error") for r in q["by"].values()):
-                    earlier[q["query"]] = q["by"]
-
-        queries = [{"n": i, "label": "Full strategy" if q["role"] == "full" else q["label"], "strategy": names[q["role"]],
+        earlier = self._earlier()
+        queries = [{"n": i, "label": "Full strategy" if q["role"] == "full" else q["label"], "strategy": HASSE_ROLES[q["role"]],
                     "query": q["query"], "backends": outcomes(q["by"])} for i, q in enumerate(searched, 1)]
-        seen = {q["query"] for q in queries}
-        for block in _blocks(e["state"]):
-            for label, node, strategy in [(block.label, block.node, "blocks"), *((to_generic(t), t, "strings") for t in block.terms)]:
-                text = to_generic(node)
-                if text not in seen:
-                    seen.add(text)
-                    queries.append({"n": len(queries) + 1, "label": label, "strategy": strategy, "query": text,
-                                    "backends": outcomes(earlier.get(text, {}))})
+        for label, node, strategy in extra:
+            text = to_generic(node)
+            queries.append({"n": len(queries) + 1, "label": label, "strategy": strategy, "query": text,
+                            "backends": outcomes(earlier.get(text, {}))})
         what = f"Run #{n}" if e["kind"] == "run" else f"Analysis #{n} of [{e['block']}]"
         label = next((b.label for b in self.pool.values() if b.name == backend), backend)
         figure = hasse.build_figure({"queries": queries}, backend, theme=theme, title=f"{what}: queries ordered by containment, with {label} hits")
@@ -729,8 +809,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         session = self.server.session
         backend = query.get("backend", [""])[0] or session.backends[0].name
+        theme = query.get("theme", ["light"])[0]
+        job = session.job
+        if job.get("running") and job.get("kind") == "hasse" and job.get("n") == n:
+            self._send(200, session.hasse_wait_html(n, theme).encode(), "text/html; charset=utf-8")
+            return
         try:
-            page = session.hasse_html(n, backend, query.get("theme", ["light"])[0], PLOTLY_JS)
+            page = session.hasse_html(n, backend, theme, PLOTLY_JS)
         except (UIError, QueryError) as exc:
             self._send(400, f"Cannot draw a Hasse diagram of #{n}: {exc}".encode(), "text/plain; charset=utf-8")
             return
@@ -750,6 +835,8 @@ class Handler(BaseHTTPRequestHandler):
                 session.start("run")
             elif path == "/api/analyze":
                 session.start("analyze", body.get("block"))
+            elif path == "/api/hasse":
+                session.start("hasse", n=body.get("n"))
             else:
                 self._send(404, b"not found", "text/plain")
                 return

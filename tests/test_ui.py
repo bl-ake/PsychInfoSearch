@@ -229,6 +229,17 @@ def test_hasse_diagram_of_a_run(tmp_path):
     with pytest.raises(UIError):
         session.hasse_html(1, "fake", "light", "/plotly.min.js")  # the session start entry
 
+    # the diagram button first searches the strings not searched on their own
+    assert session.view()["hasse_costs"][entry["n"]] == 2  # math* and algebra; the other blocks are single strings
+    assert session.start("hasse", n=entry["n"])
+    _wait(session)
+    searched = session.log.entries[-1]
+    assert searched["kind"] == "hasse" and {q["query"] for q in searched["queries"]} == {"math*", "algebra"}
+    page = session.hasse_html(entry["n"], "fake", "dark", "/plotly.min.js")
+    assert "not searched" not in page
+    assert session.view()["hasse_costs"][entry["n"]] == 0
+    assert session.start("hasse", n=entry["n"]) is False  # nothing left to search
+
     server = Server(0, session)
     port = server.server_address[1]
     server.hosts = {f"127.0.0.1:{port}"}
