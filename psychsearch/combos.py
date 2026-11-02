@@ -119,7 +119,7 @@ def refine(blocks: list[Block], name: str) -> list[Query]:
     target = find_block(blocks, name)
     covered = {r.line for r in find_redundant([target])}
     # a string written twice is covered only by its copy; the first copy still counts
-    covered_nodes = {n for l, n, _ in target.entries if l in covered} - {n for l, n, _ in target.entries if l not in covered}
+    covered_nodes = {n for line, n, _ in target.entries if line in covered} - {n for line, n, _ in target.entries if line not in covered}
     full = full_strategy(blocks)
     queries = [Query("FULL: " + _subset_label(tuple(blocks), "AND", full), "refine", full)]
     if len(target.terms) > 1:

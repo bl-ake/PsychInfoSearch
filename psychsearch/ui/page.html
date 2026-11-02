@@ -201,8 +201,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .dlg-body { padding: 8px 16px 16px; }
 .dlg-body pre { background: var(--code); padding: 8px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 420px; overflow: auto; }
 .full-log td:first-child { white-space: nowrap; }
-#string-dialog { width: min(640px, calc(100vw - 32px)); }
+#string-dialog, #save-dialog { width: min(640px, calc(100vw - 32px)); }
 #string-dialog textarea { display: block; width: 100%; resize: vertical; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+#save-dialog label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+#save-name { display: block; width: 100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+#save-dialog code { background: var(--code); border-radius: 4px; padding: 1px 4px; }
 #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(640px, calc(100vw - 32px)); background: var(--ink); color: var(--panel); padding: 10px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); display: none; z-index: 10; }
 #toast.show { display: block; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -307,6 +310,27 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   </form>
 </dialog>
 
+<dialog id="save-dialog" aria-labelledby="save-h">
+  <form id="save-form">
+    <div class="dlg-head">
+      <h2 id="save-h">Save as terms file</h2>
+      <button type="button" id="save-close" class="btn small">Cancel</button>
+    </div>
+    <div class="dlg-body stack">
+      <p class="hint">Saves this strategy as a plain-text file you can start psychsearch from again, or edit in TextEdit. Switched-off strings are kept, marked <code>?</code>.</p>
+      <div>
+        <label for="save-name">File name</label>
+        <input id="save-name" autocomplete="off" spellcheck="false">
+        <p class="hint" id="save-where"></p>
+      </div>
+      <div id="save-exists" class="warn-box" hidden></div>
+      <div id="save-error" class="error-box" hidden></div>
+      <details><summary>Preview the file</summary><pre id="save-preview"></pre></details>
+      <div class="row"><button id="save-go" class="btn primary">Save</button></div>
+    </div>
+  </form>
+</dialog>
+
 <div id="toast" role="status"></div>
 
 <script>
@@ -344,12 +368,12 @@ async function entry(n) {
   if (!cache.has(n)) cache.set(n, await api(`/api/entry/${n}`));
   return cache.get(n);
 }
-function toast(message) {
+function toast(message, ms = 6000) {
   const t = $("toast");
   t.textContent = message;
   t.classList.add("show");
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.remove("show"), 6000);
+  toast.timer = setTimeout(() => t.classList.remove("show"), ms);
 }
 
 async function refresh() {
@@ -562,6 +586,7 @@ function renderRunbar() {
   if (p.proved_empty) parts.push(`${p.proved_empty} answered without searching`);
   $("cost").textContent = parts.join(" · ");
   $("autorun-wrap").hidden = !S.autorun;
+  $("save").disabled = !S.blocks.length;
 }
 
 function renderRecent() {
@@ -622,35 +647,6 @@ async function openHasse(n) {
   await render();
 }
 
-// The records a run or analysis read for its full strategy: the sample, not every hit.
-function fullSample(e) {
-  const full = (e.queries || e.rows).find(q => q.role === "full");
-  const by = Object.values(full.by);
-  return {records: by.reduce((n, r) => n + (r.records || []).length, 0), hits: by.reduce((n, r) => n + (r.count || 0), 0)};
-}
-function exportButton(e) {
-  const {records, hits} = fullSample(e);
-  const what = records < hits ? `the ${plural(records, "record")} this search read (its sample of ${num(hits)} hits)` : `its ${plural(records, "record")}`;
-  return `<button class="btn small" data-export="${e.n}" ${records ? "" : "disabled"}
-    title="Save ${what} as a CSV file: title, authors, publication date, source, link, publication type, subjects and abstract">Export to CSV</button>`;
-}
-async function exportCsv(n) {
-  let blob;
-  try {
-    const res = await fetch(`/api/export/${n}`, {headers: {"X-Token": TOKEN}});
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-    blob = await res.blob();   // as bytes, so the byte order mark Excel needs is kept
-  } catch (err) { toast(`Export failed: ${err.message}`); return; }
-  const e = await entry(n);
-  const names = Object.keys((e.queries || e.rows).find(q => q.role === "full").by);
-  const name = `psychsearch-${e.kind === "run" ? "run" : "analysis"}-${n}${names.length === 1 ? `-${names[0]}` : ""}.csv`;
-  const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), download: name});
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  const {records, hits} = fullSample(e);
-  toast(`Saved ${plural(records, "record")} to ${name}` + (records < hits ? `: the sample this search read, not all ${num(hits)} hits.` : "."));
-}
-
 function tabsHtml() {
   if (S.backends.length < 2) return "";
   return `<div class="tabs" role="group" aria-label="Database shown">${S.backends.map(b =>
@@ -703,7 +699,6 @@ async function runHtml(e) {
       <span class="small muted">${base ? `compared with run #${base.n}` : "first run"}</span>
       <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}
         ${hasseButton(e.n)}
-        ${exportButton(e)}
         ${!isLatest ? `<button class="btn small" data-restore="${e.n}">Restore this strategy</button>` : ""}
         <button class="btn small" data-compare="${e.n}">Compare next runs with this</button></div></div>
       <p class="strategy-line">${esc(e.strategy)}</p>`;
@@ -789,7 +784,7 @@ function analysisHtml(e) {
     return `<td class="num">${num(r.count)}${saved}</td>`;
   }).join("");
   return `<div class="run-head"><h2>Analysis #${e.n} of [${esc(e.block)}]</h2><span class="small muted">${esc(e.time.replace("T", " "))}</span>
-      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}${hasseButton(e.n)}${exportButton(e)}</div></div>
+      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}${hasseButton(e.n)}</div></div>
     <p class="strategy-line">${esc(e.strategy)}</p>
     <p class="small muted">Each switched-on string: the hits the full strategy loses without it (what it alone contributes). Each switched-off string: the records it would add (it, NOT the rest of the block, AND the other blocks).
       To see exactly which records a string contributes, switch it off and run.</p>
@@ -891,7 +886,6 @@ document.addEventListener("click", ev => {
   if (d.viewLatest !== undefined) { viewing = null; return render(); }
   if (d.loadPrevious !== undefined) return openLog(true);
   if (d.hasse !== undefined) return openHasse(+d.hasse);
-  if (d.export !== undefined) return exportCsv(+d.export);
   if (d.restore !== undefined) return act({type: "restore", run: +d.restore});
   if (d.compare !== undefined) return act({type: "compare with", run: +d.compare});
   if (d.compareLatest !== undefined) return act({type: "compare with", run: null});
@@ -901,6 +895,7 @@ document.addEventListener("submit", ev => {
   ev.preventDefault();
   const form = ev.target, input = form.querySelector("input");
   if (form.id === "string-form") return loadString();
+  if (form.id === "save-form") return saveTerms();
   if (form.id === "add-block") {
     const count = S.blocks.length;
     act({type: "add block", name: input.value}).then(() => {
@@ -921,13 +916,55 @@ document.addEventListener("submit", ev => {
   });
 });
 $("run").addEventListener("click", () => startJob("/api/run"));
-$("save").addEventListener("click", () => {
-  const path = prompt("Save the strategy as a terms file (switched-off strings are saved as '?' candidates):", S.save_path);
-  if (path) act({type: "save", path});
+// Save as terms file: a name in the suggested folder (or a full path), with a preview and a check before replacing a file.
+let saveExists = "";   // the name that already exists and the user has been asked about; saving it again replaces it
+$("save").addEventListener("click", async () => {
+  let p;
+  try { p = await api("/api/terms-file"); } catch (e) { toast(e.message); return; }
+  $("save-name").value = p.name;
+  $("save-where").innerHTML = `Saved in <b>${esc(p.folder_shown)}</b>. To save somewhere else, type a full path, such as <code>~/Desktop/my-terms.txt</code>.`;
+  $("save-preview").textContent = p.text;
+  saveReset();
+  $("save-dialog").showModal();
+  const box = $("save-name"), dot = box.value.lastIndexOf(".");
+  box.focus();
+  box.setSelectionRange(0, dot > 0 ? dot : box.value.length);   // ready to type a new name, keeping .txt
 });
+function saveReset() {
+  saveExists = "";
+  $("save-exists").hidden = $("save-error").hidden = true;
+  $("save-go").textContent = "Save";
+}
+$("save-name").addEventListener("input", saveReset);
+$("save-close").addEventListener("click", () => $("save-dialog").close());
+async function saveTerms() {
+  const name = $("save-name").value;
+  try {
+    S = await api("/api/action", {type: "save", path: name, overwrite: saveExists === name});
+  } catch (e) {
+    if (e.message.startsWith("EXISTS:")) {
+      const path = e.message.slice(7);
+      saveExists = name;
+      $("save-exists").textContent = `${path.split("/").pop()} already exists in that folder. Click Replace to save over it, or change the name.`;
+      $("save-exists").hidden = false;
+      $("save-go").textContent = "Replace";
+      return;
+    }
+    $("save-error").textContent = e.message;   // shown in the dialog: a toast would sit behind it
+    $("save-error").hidden = false;
+    return refresh();                          // the rejection is logged
+  }
+  $("save-dialog").close();
+  await render();
+  const latest = S.recent.find(e => e.kind === "save");
+  if (!latest) return;
+  const saved = await entry(latest.n);
+  toast(`${saved.summary}. To start from it next time, run: ${saved.command}`, 12000);
+}
 document.addEventListener("keydown", ev => {
   if (ev.key !== "Enter" || !(ev.metaKey || ev.ctrlKey)) return;
   if ($("string-dialog").open) { ev.preventDefault(); $("string-form").requestSubmit(); return; }
+  if ($("save-dialog").open) { ev.preventDefault(); $("save-form").requestSubmit(); return; }
   if (!$("run").disabled) { ev.preventDefault(); startJob("/api/run"); }
 });
 

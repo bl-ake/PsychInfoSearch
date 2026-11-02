@@ -1,2 +1,0 @@
-- Keep relevant articles button
-- Load settings from a search string (separate ANDs and ORs into separate categories/articles)

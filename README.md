@@ -1,6 +1,12 @@
+# psychsearch
+
+psychsearch helps you build a literature search one string at a time. You switch search strings on and off on a page in your web browser. Each run shows how many hits your search gets in PsycInfo, PubMed or ERIC, and which records your last change added or lost.
+
 ## Setup (one time)
 
 ### 0. Install Firefox
+
+psychsearch searches PsycInfo through Firefox. [Download it here](https://www.mozilla.org/firefox/) and drag it into your Applications folder.
 
 Hell yeah I love Firefox
 
@@ -38,11 +44,11 @@ psychsearch-ui
 
 The page opens in your web browser. **Keep the Terminal window open while you work.** When you're done, click on Terminal and press **Ctrl C** to stop.
 
-That starts you with the free databases (PubMed and OpenAlex). To search PsycInfo, see [Searching PsycInfo](#searching-psycinfo) below.
+That starts you with PsycInfo. The first time you click **Run**, a separate Firefox window opens for you to log in to your library: see [Searching PsycInfo](#searching-psycinfo) below. To try things out without logging in, pick **PubMed** or **ERIC** in the **Database** dropdown at the top of the page.
+
+When you like your strategy, click **Save as terms file…** to keep it. Type a name and it's saved in your psychsearch folder. The message afterwards tells you the command to start from it again next time.
 
 After a run or an analysis, the **Hasse diagram** button opens a new tab showing how your strings, blocks and the full strategy fit inside one another. Narrower searches are drawn lower, and a line joins each one to the next broader search that contains it. Each search is coloured by its number of hits. Strings that were never searched on their own are drawn hollow.
-
-**Export to CSV** (beside **Hasse diagram**) saves the records a run or analysis read for the full strategy as a spreadsheet: title, authors, publication date, year, source, link, publication type, subjects, abstract, database and record ID, plus DOI and citation count when the database gives them. It saves the sample the search read, not every hit. That sample is 10 records unless you start with `--sample N` (up to 200 for PubMed and ERIC). EBSCOhost only ever reads its first results page of 10. To get a full PsycInfo result set, use EBSCO's own export in the Firefox window.
 
 Click the **☆** beside any result to save it as a **relevant article**. Saved articles are listed at the top right and kept between sessions (in `results/relevant-articles.json`). From then on, every run shows how many of them each query finds, for example **★ 4/5**. The **What the change did** cards say if a change lost one, and **Analyze** shows which strings they depend on. Each article is checked in the database you saved it from. Checking takes a few extra searches, and the cost next to **Run** includes them.
 
@@ -84,17 +90,13 @@ Psychsearch opens UConn's PsycInfo by default, so UConn students can skip this s
 
 The **Database** dropdown at the top of the page switches between PsycInfo, PubMed and ERIC. Switching starts a fresh comparison: runs from the previous database are no longer used to work out what you gained or lost. It's disabled while a search is running.
 
-### Starting with PsycInfo
-
-```sh
-psychsearch-ui
-```
+### Logging in
 
 Searches don't start until you click **Run**. The first time you do, a **separate Firefox window** opens. It's separate from your normal Firefox and keeps its own logins. Log in to your library there. If EBSCO shows a **cookie banner**, answer it (any option is fine). The searches start on their own once the EBSCO search page appears. If nothing seems to be happening, look at Terminal, which will say what it's waiting for.
 
 **Leave that Firefox window open between sessions.** Then you only log in once. Some library proxies only allow a couple of sessions per person at a time, so logging in again and again can lock you out for a while.
 
-To see PsycInfo next to the free databases, list them all: `psychsearch-ui -b ebscohost,pubmed,openalex`
+To see PsycInfo next to the free databases, list them all when you start: `psychsearch-ui -b ebscohost,pubmed,openalex`. (OpenAlex is only available this way. It isn't in the dropdown.)
 
 
 ## Writing a terms file by hand

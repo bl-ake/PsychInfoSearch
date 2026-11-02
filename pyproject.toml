@@ -17,7 +17,7 @@ psychsearch-hasse = "psychsearch.hasse:main"
 psychsearch-ui = "psychsearch.ui:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
 requires = ["hatchling"]
@@ -25,3 +25,14 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 140
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # long lines are fine here: many are one-line messages or HTML
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false

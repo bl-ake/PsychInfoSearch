@@ -32,7 +32,10 @@ def test_covers_form_the_subset_lattice():
     run = _run(LINES, ("blocks", "and"))
     items = [Item(q["n"], q["label"], q["strategy"], q["query"], parse(q["query"]), q["backends"]) for q in run["queries"]]
     items, undecided = build_order(items)
-    label = lambda i: items[i].label
+
+    def label(i):
+        return items[i].label
+
     parents = {item.label: sorted(label(p) for p in item.parents) for item in items}
     assert undecided == 0
     assert parents["[pop]"] == []

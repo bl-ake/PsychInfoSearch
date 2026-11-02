@@ -16,8 +16,8 @@ from .backends import BACKENDS, BackendError, SearchOptions
 from .backends.base import MAX_SAMPLE
 from .combos import DEFAULT_STRATEGIES, REFINE_HELP, STRATEGIES, Block, Query, generate, load_blocks, refine, with_candidates
 from .http import Http
-from .redundancy import Redundant, comment_out, find_redundant
 from .query import FIELDS, PSYCINFO_SYNTAXES, QueryError, parse, to_generic
+from .redundancy import Redundant, comment_out, find_redundant
 from .runner import run
 
 CACHE_DIR = Path(".psychsearch_cache")

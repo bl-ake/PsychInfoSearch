@@ -184,7 +184,8 @@ class Ebsco(Backend):
         found = set()
         for chunk in chunks(known_ids, KNOWN_CHUNK):
             # Quoted: on the EBSCOhost site an unquoted accession number matches loosely.
-            term = f"( {self.render(node, opts)} ) AND ( {' OR '.join(f'AN "{an}"' for an in chunk)} )"
+            numbers = " OR ".join(f'AN "{an}"' for an in chunk)
+            term = f"( {self.render(node, opts)} ) AND ( {numbers} )"
             data = self._call(self._body(term, opts, MAX_PER_PAGE, "title"))
             found.update(_parse(raw).id for raw in self._records(data)[0])
         return found & set(known_ids)

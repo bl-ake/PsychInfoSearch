@@ -56,7 +56,17 @@ class BiDi:
         except (OSError, websocket.WebSocketException) as exc:
             raise BrowserError(f"could not connect to the automation Firefox on port {port}: {exc}") from None
         self.next_id = 0
-        self.send("session.new", {"capabilities": {}})
+        try:
+            self.send("session.new", {"capabilities": {}})
+        except BrowserError as exc:
+            self.ws.close()
+            if "Maximum number of active sessions" in str(exc):
+                raise BrowserError(
+                    "the automation Firefox is still held by an earlier connection (another psychsearch that is running, "
+                    "or one that was stopped before it could let go). Close that psychsearch if it is running; "
+                    "otherwise quit the automation Firefox window and run again (you may have to log in again)"
+                ) from None
+            raise
 
     def send(self, method: str, params: dict | None = None) -> dict:
         self.next_id += 1

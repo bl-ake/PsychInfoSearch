@@ -1,5 +1,7 @@
-from psychsearch.backends.eric import Eric, _parse
+import json
+
 from psychsearch.backends.base import SearchOptions
+from psychsearch.backends.eric import Eric, _parse
 from psychsearch.query import parse
 
 
@@ -17,7 +19,7 @@ def test_parse_record():
 
 def test_date_sort_is_done_locally(monkeypatch):
     docs = [{"id": f"EJ{y}", "publicationdateyear": y} for y in (2001, 2020, 2010)]
-    body = '{"response": {"numFound": 500, "docs": %s}}' % __import__("json").dumps(docs)
+    body = json.dumps({"response": {"numFound": 500, "docs": docs}})
 
     class FakeHttp:
         def get(self, url, params, **kw):

@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 from itertools import product
 from typing import TYPE_CHECKING
 
@@ -36,7 +36,7 @@ def _words(term: Term) -> list[str]:
     return [w for w in re.split(r"[\s\-]+", term.text.lower()) if w]
 
 
-@lru_cache(maxsize=None)
+@cache
 def _word_regex(word: str) -> re.Pattern:
     return re.compile(re.escape(word).replace(r"\*", r"\w*").replace(r"\?", r"\w"))
 
@@ -61,7 +61,7 @@ def term_covers(broad: Term, narrow: Term) -> bool:
     if not b or len(b) > len(n):
         return False
     return any(
-        all(_word_covers(bw, nw) for bw, nw in zip(b, n[start : start + len(b)]))
+        all(_word_covers(bw, nw) for bw, nw in zip(b, n[start : start + len(b)], strict=True))
         for start in range(len(n) - len(b) + 1)
     )
 
@@ -129,7 +129,7 @@ class Redundant:
         return "covered by " + ", ".join(self.covered_by)
 
 
-def find_redundant(blocks: list["Block"]) -> list[Redundant]:
+def find_redundant(blocks: list[Block]) -> list[Redundant]:
     """Strings, and '?' candidates, that add nothing to their block; the first of two equivalent strings is kept."""
     found: list[Redundant] = []
     for block in blocks:
@@ -154,9 +154,9 @@ def find_redundant(blocks: list["Block"]) -> list[Redundant]:
     return sorted(found, key=lambda r: r.line)
 
 
-def _redundant(block: "Block", entry: tuple[int, Node], others: list[tuple[int, Node]], candidate: bool) -> Redundant:
+def _redundant(block: Block, entry: tuple[int, Node], others: list[tuple[int, Node]], candidate: bool) -> Redundant:
     line, node = entry
-    covering = [f"line {l} (same string)" if n == node else to_generic(n) for l, n in others if covers(n, node)]
+    covering = [f"line {at} (same string)" if n == node else to_generic(n) for at, n in others if covers(n, node)]
     return Redundant(block.name or "", line, to_generic(node), candidate, covering)
 
 

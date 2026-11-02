@@ -202,7 +202,7 @@ def lay_out(items: list[Item]) -> None:
     for sweep in range(6):
         downward = sweep % 2 == 0
         for depth in sorted(layers, reverse=not downward):
-            def centre(i: int) -> float:
+            def centre(i: int, downward: bool = downward) -> float:
                 neighbours = items[i].parents if downward else children[i]
                 return sum(slot[n] for n in neighbours) / len(neighbours) if neighbours else slot[i]
 

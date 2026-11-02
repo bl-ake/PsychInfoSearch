@@ -412,7 +412,8 @@ class EbscoHost(Backend):
         found = set()
         for chunk in chunks(known_ids, PAGE_SIZE):
             # Quoted: an unquoted accession number is matched loosely and pulls in unrelated records.
-            term = f"( {self.render(node, opts)} ) AND ( {' OR '.join(f'AN "{an}"' for an in chunk)} )"
+            numbers = " OR ".join(f'AN "{an}"' for an in chunk)
+            term = f"( {self.render(node, opts)} ) AND ( {numbers} )"
             found.update(_parse(item).id for item in self._load(term, opts)["items"])
         return found & set(known_ids)
 
@@ -439,3 +440,4 @@ def _parse(item: dict) -> Record:
         extra={"database": item.get("database", ""), "peer_reviewed": item.get("peerReviewed", False),
                "published": item.get("publishedText", "")},
     )
+

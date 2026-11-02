@@ -2,8 +2,20 @@ import pytest
 
 from psychsearch.combos import blocks_from_lines, generate, refine, with_candidates
 from psychsearch.query import (
-    And, Not, Or, QueryError, Term, matches, parse, to_ebsco, to_europepmc, to_generic,
-    to_openalex, to_ovid, to_proquest, to_pubmed,
+    And,
+    Not,
+    Or,
+    QueryError,
+    Term,
+    matches,
+    parse,
+    to_ebsco,
+    to_europepmc,
+    to_generic,
+    to_openalex,
+    to_ovid,
+    to_proquest,
+    to_pubmed,
 )
 
 

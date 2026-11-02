@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from .backends import Backend, BackendError, Record, SearchOptions, SearchResult
 from .combos import Block, Query

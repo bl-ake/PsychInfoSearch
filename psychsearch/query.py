@@ -11,9 +11,9 @@ Input syntax (deliberately close to what PsycInfo platforms accept):
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import Callable, Iterable, Union
+from functools import cache
 
 FIELDS = ("tiab", "title", "all")
 
@@ -37,7 +37,7 @@ class Term:
 
 @dataclass(frozen=True)
 class Not:
-    part: "Node"
+    part: Node
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class Or:
     parts: tuple
 
 
-Node = Union[Term, Not, And, Or]
+Node = Term | Not | And | Or
 
 
 def _combine(cls, nodes: Iterable[Node]) -> Node:
@@ -286,7 +286,7 @@ PSYCINFO_SYNTAXES: dict[str, Callable[[Node, str], str]] = {
 # ------------------------------------------------------- matching on text
 
 
-@lru_cache(maxsize=None)
+@cache
 def _term_regex(text: str) -> re.Pattern:
     words = [
         re.escape(w).replace(r"\*", r"\w*").replace(r"\?", r"\w?") for w in text.split()
