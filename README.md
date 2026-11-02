@@ -10,7 +10,7 @@ Press **⌘ Space**, type **Terminal** and hit Return. You'll get a window with 
 
 ### 2. Install uv
 
-[uv](https://docs.astral.sh/uv/) is a small tool that helps get you set up. Paste this into your terminal:
+[uv](https://docs.astral.sh/uv/) is a small tool that helps get you set up. Paste this into your terminal and press enter:
 
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -19,7 +19,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 When it's done, **fully quit Terminal (⌘ Q) and open it again**. This is part of the hazing ritual.
 
 ### 3. Install psychsearch
-Now, paste this into your terminal:
+Now, paste this into your terminal and press enter:
 ```sh
 uv tool install https://github.com/bl-ake/PsychInfoSearch/archive/refs/heads/main.zip
 ```
