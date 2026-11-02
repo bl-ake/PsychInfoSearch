@@ -17,7 +17,7 @@ SEARCH_FIELD = {
     "all": "default.search.exact",
 }
 SELECT = (
-    "id,doi,title,publication_year,language,type,primary_location,authorships,cited_by_count,"
+    "id,doi,title,publication_year,publication_date,language,type,primary_location,authorships,cited_by_count,"
     "open_access,primary_topic,topics,keywords,mesh,abstract_inverted_index,is_retracted"
 )
 FACETS = {"year": "publication_year", "type": "type", "field": "primary_topic.field.id"}
@@ -119,6 +119,7 @@ def _parse(work: dict) -> Record:
         title=work.get("title") or "",
         authors=[a["author"]["display_name"] for a in work.get("authorships") or [] if a.get("author")],
         year=work.get("publication_year"),
+        date=work.get("publication_date") or str(work.get("publication_year") or ""),
         journal=source,
         doi=doi,
         url=work.get("doi") or work["id"],

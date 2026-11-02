@@ -428,6 +428,8 @@ def _parse(item: dict) -> Record:
         title=item.get("title", ""),
         authors=item.get("authors", []),
         year=int(year.group()) if year else None,
+        # published is [source, date, volume, issue, pages]; the date is "Sep 7, 2026", "Mar 2021" or "2026"
+        date=published[1] if len(published) > 1 and re.search(r"\b\d{4}\b", published[1]) else (year.group() if year else ""),
         journal=published[0] if published else "",
         url=item.get("href", ""),
         abstract=item.get("abstract", ""),

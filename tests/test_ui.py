@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import time
 import urllib.error
@@ -10,7 +12,7 @@ from psychsearch.backends import Backend, Record, SearchOptions
 from psychsearch.combos import blocks_from_lines
 from psychsearch.http import Http
 from psychsearch.query import matches, to_generic
-from psychsearch.ui import Log, Server, Session, UIError, read_log, state_from_blocks, state_from_string, terms_file_text
+from psychsearch.ui import Log, Server, Session, UIError, read_log, records_csv, state_from_blocks, state_from_string, terms_file_text
 
 CORPUS = {
     "r1": "gamified math practice for middle school students",
@@ -440,6 +442,56 @@ def test_hasse_diagram_of_a_run(tmp_path):
         page = urllib.request.urlopen(f"{base}/hasse/{entry['n']}?backend=fake&token={server.token}").read().decode()
         assert "algebra" in page
         assert b"plotly" in urllib.request.urlopen(base + "/plotly.min.js").read(2000).lower()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_export_the_records_of_a_run_as_csv(tmp_path):
+    session, backend = _session(tmp_path)
+    many = [f"Author {i}" for i in range(9)]
+
+    def search(node, opts, result, plain=backend._search):
+        plain(node, opts, result)
+        for r in result.records:
+            r.authors, r.date, r.year, r.url = many, "Sep 7, 2026", 2026, f"https://example.org/{r.id}"
+            r.abstract, r.subjects = 'Says "hi", then\na new line', ["Games", "Mathematics"]
+    backend._search = search
+    session.act({"type": "toggle term", "block": 1, "term": 1})  # gamif*
+    entry = _run(session)
+
+    text, count = records_csv(entry, {"fake": "Fake DB"})
+    assert text.startswith("\ufeff")
+    rows = list(csv.DictReader(io.StringIO(text[1:])))
+    assert count == len(rows) == 2
+    assert [r["Record ID"] for r in rows] == ["r1", "r2"]  # the records that match the full strategy
+    first = rows[0]
+    assert first["Title"] == CORPUS["r1"] and first["Database"] == "Fake DB"
+    assert first["Authors"] == "; ".join(many)  # every author, though the page shows six
+    assert (first["Publication date"], first["Year"], first["Link"]) == ("Sep 7, 2026", "2026", "https://example.org/r1")
+    assert first["Abstract"] == 'Says "hi", then\na new line' and first["Subjects"] == "Games; Mathematics"
+    assert "DOI" not in first and "Cited by" not in first  # no record has one
+
+    # a log written before full author lists were kept: the rest are marked "et al."
+    old = {"kind": "run", "n": 9, "queries": [{"role": "full", "by": {"fake": {"records": [
+        {"id": "x", "title": "T", "authors": ["A"], "more_authors": 3, "year": 2001, "doi": "10.1/x"}]}}}]}
+    (row,) = csv.DictReader(io.StringIO(records_csv(old, {})[0][1:]))
+    assert (row["Authors"], row["Publication date"], row["DOI"]) == ("A; et al.", "2001", "10.1/x")
+    with pytest.raises(UIError):
+        records_csv(session.log.entries[0], {})  # the session start entry
+
+    server = Server(0, session)
+    port = server.server_address[1]
+    server.hosts = {f"127.0.0.1:{port}"}
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{port}/api/export/{entry['n']}"
+        with pytest.raises(urllib.error.HTTPError) as no_token:
+            urllib.request.urlopen(url)
+        assert no_token.value.code == 403
+        response = urllib.request.urlopen(urllib.request.Request(url, headers={"X-Token": server.token}))
+        assert response.headers["Content-Type"].startswith("text/csv")
+        assert response.read().decode("utf-8") == records_csv(entry, {})[0]
     finally:
         server.shutdown()
         server.server_close()

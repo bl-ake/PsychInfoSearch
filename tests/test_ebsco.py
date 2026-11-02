@@ -124,7 +124,7 @@ def test_counts_psycinfo_and_parses_records(make_backend):
     assert record.id == "2010-05835-004"
     assert record.title == "The effect of mindfulness-based therapy on anxiety and depression"
     assert record.authors == ["Hofmann, Stefan G."]
-    assert (record.year, record.journal) == (2010, "Journal of Consulting and Clinical Psychology")
+    assert (record.year, record.date, record.journal) == (2010, "2010-04-01", "Journal of Consulting and Clinical Psychology")
     assert record.doi == "10.1037/a0018555"
     assert record.abstract == "Objective: review of trials."
     assert record.subjects == ["Anxiety", "Mindfulness"]

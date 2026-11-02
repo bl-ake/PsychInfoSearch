@@ -18,6 +18,7 @@ class Record:
     title: str = ""
     authors: list[str] = field(default_factory=list)
     year: int | None = None
+    date: str = ""  # publication date as the database gives it ("Sep 7, 2026", "2026-09-07"); may be only a year
     journal: str = ""
     doi: str = ""
     url: str = ""

@@ -90,7 +90,7 @@ def test_search_reads_count_and_records(make_backend):
     ]
     (record,) = result.records
     assert record.id == "2010-05835-004"
-    assert (record.year, record.journal) == (2010, "Journal of Consulting and Clinical Psychology")
+    assert (record.year, record.date, record.journal) == (2010, "Apr 2010", "Journal of Consulting and Clinical Psychology")
     assert record.authors == ["Hofmann, Stefan G.", "Sawyer, Alice T."]
     assert record.pub_types == ["Journal", "Peer Reviewed Journal"]
     assert record.cited_by == 2345

@@ -622,6 +622,35 @@ async function openHasse(n) {
   await render();
 }
 
+// The records a run or analysis read for its full strategy: the sample, not every hit.
+function fullSample(e) {
+  const full = (e.queries || e.rows).find(q => q.role === "full");
+  const by = Object.values(full.by);
+  return {records: by.reduce((n, r) => n + (r.records || []).length, 0), hits: by.reduce((n, r) => n + (r.count || 0), 0)};
+}
+function exportButton(e) {
+  const {records, hits} = fullSample(e);
+  const what = records < hits ? `the ${plural(records, "record")} this search read (its sample of ${num(hits)} hits)` : `its ${plural(records, "record")}`;
+  return `<button class="btn small" data-export="${e.n}" ${records ? "" : "disabled"}
+    title="Save ${what} as a CSV file: title, authors, publication date, source, link, publication type, subjects and abstract">Export to CSV</button>`;
+}
+async function exportCsv(n) {
+  let blob;
+  try {
+    const res = await fetch(`/api/export/${n}`, {headers: {"X-Token": TOKEN}});
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    blob = await res.blob();   // as bytes, so the byte order mark Excel needs is kept
+  } catch (err) { toast(`Export failed: ${err.message}`); return; }
+  const e = await entry(n);
+  const names = Object.keys((e.queries || e.rows).find(q => q.role === "full").by);
+  const name = `psychsearch-${e.kind === "run" ? "run" : "analysis"}-${n}${names.length === 1 ? `-${names[0]}` : ""}.csv`;
+  const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), download: name});
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const {records, hits} = fullSample(e);
+  toast(`Saved ${plural(records, "record")} to ${name}` + (records < hits ? `: the sample this search read, not all ${num(hits)} hits.` : "."));
+}
+
 function tabsHtml() {
   if (S.backends.length < 2) return "";
   return `<div class="tabs" role="group" aria-label="Database shown">${S.backends.map(b =>
@@ -637,15 +666,16 @@ function delta(now, before) {
 
 // `n` is the log entry the record comes from; the server takes the saved copy from there. Records are of the `tab` database.
 function recHtml(r, isNew, n) {
-  const authors = r.authors.join("; ") + (r.more_authors ? ` +${r.more_authors}` : "");
+  const more = Math.max(0, r.authors.length - 6) + (r.more_authors || 0);   // older logs kept 6 and counted the rest
+  const authors = r.authors.slice(0, 6).join("; ") + (more ? ` +${more}` : "");
   const meta = [authors, r.year, r.journal, r.cited_by != null ? `cited by ${num(r.cited_by)}` : "",
     r.blocks_matched ? `title/abstract matches ${r.blocks_matched} blocks` : ""].filter(Boolean).map(esc).join(" · ");
   const title = r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title || "(no title)")}</a>` : esc(r.title || "(no title)");
-  const more = (r.abstract || r.subjects.length) ? `<details><summary>Abstract${r.subjects.length ? " and subjects" : ""}</summary>
+  const details = (r.abstract || r.subjects.length) ? `<details><summary>Abstract${r.subjects.length ? " and subjects" : ""}</summary>
       ${r.abstract ? `<p>${esc(r.abstract)}</p>` : ""}${r.subjects.length ? `<p class="small muted">Subjects: ${esc(r.subjects.join("; "))}</p>` : ""}</details>` : "";
   const star = r.id ? `<button class="star" data-save="${esc(r.id)}" data-db="${esc(tab)}" data-n="${n}" aria-pressed="false" title="Save as a relevant article">☆</button>` : "";
   return `<li class="rec">${star}<div class="rec-body"><div class="rec-title">${title}${isNew ? ` <span class="badge new" title="Not in the sample of the run compared with">new in sample</span>` : ""}</div>
-    <div class="rec-meta">${meta}</div>${more}</div></li>`;
+    <div class="rec-meta">${meta}</div>${details}</div></li>`;
 }
 
 function changeCard(q, kind, base, n) {
@@ -673,6 +703,7 @@ async function runHtml(e) {
       <span class="small muted">${base ? `compared with run #${base.n}` : "first run"}</span>
       <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}
         ${hasseButton(e.n)}
+        ${exportButton(e)}
         ${!isLatest ? `<button class="btn small" data-restore="${e.n}">Restore this strategy</button>` : ""}
         <button class="btn small" data-compare="${e.n}">Compare next runs with this</button></div></div>
       <p class="strategy-line">${esc(e.strategy)}</p>`;
@@ -758,7 +789,7 @@ function analysisHtml(e) {
     return `<td class="num">${num(r.count)}${saved}</td>`;
   }).join("");
   return `<div class="run-head"><h2>Analysis #${e.n} of [${esc(e.block)}]</h2><span class="small muted">${esc(e.time.replace("T", " "))}</span>
-      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}${hasseButton(e.n)}</div></div>
+      <div class="actions">${viewing != null ? `<button class="btn small" data-view-latest>Back to latest</button>` : ""}${hasseButton(e.n)}${exportButton(e)}</div></div>
     <p class="strategy-line">${esc(e.strategy)}</p>
     <p class="small muted">Each switched-on string: the hits the full strategy loses without it (what it alone contributes). Each switched-off string: the records it would add (it, NOT the rest of the block, AND the other blocks).
       To see exactly which records a string contributes, switch it off and run.</p>
@@ -860,6 +891,7 @@ document.addEventListener("click", ev => {
   if (d.viewLatest !== undefined) { viewing = null; return render(); }
   if (d.loadPrevious !== undefined) return openLog(true);
   if (d.hasse !== undefined) return openHasse(+d.hasse);
+  if (d.export !== undefined) return exportCsv(+d.export);
   if (d.restore !== undefined) return act({type: "restore", run: +d.restore});
   if (d.compare !== undefined) return act({type: "compare with", run: +d.compare});
   if (d.compareLatest !== undefined) return act({type: "compare with", run: null});

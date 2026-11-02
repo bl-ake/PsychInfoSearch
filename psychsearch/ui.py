@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import argparse
 import copy
+import csv
 import html
+import io
 import json
 import math
 import os
@@ -185,12 +187,48 @@ def _number(value: int | None) -> str:
 
 
 def _record(record: Record) -> dict:
+    # All authors and subjects are kept, for the CSV export; the page shortens the lists itself.
+    # Logs written before that have at most 6 authors, plus "more_authors" counting the rest.
     return {
-        "id": record.id, "title": record.title, "authors": record.authors[:6], "more_authors": max(0, len(record.authors) - 6),
-        "year": record.year, "journal": record.journal, "doi": record.doi, "url": record.url,
-        "abstract": record.abstract, "subjects": record.subjects[:10], "pub_types": record.pub_types,
+        "id": record.id, "title": record.title, "authors": record.authors,
+        "year": record.year, "date": record.date, "journal": record.journal, "doi": record.doi, "url": record.url,
+        "abstract": record.abstract, "subjects": record.subjects, "pub_types": record.pub_types,
         "cited_by": record.cited_by, "blocks_matched": record.extra.get("blocks_matched"),
     }
+
+
+# (column, value) for each record in a CSV export. The ones marked optional only appear when some record has
+# a value, since not every database gives them (EBSCOhost and ERIC give no DOI, PubMed and ERIC no citation count).
+CSV_COLUMNS: list[tuple[str, bool, object]] = [
+    ("Title", False, lambda r: r.get("title", "")),
+    ("Authors", False, lambda r: "; ".join(r.get("authors") or []) + ("; et al." if r.get("more_authors") else "")),
+    ("Publication date", False, lambda r: r.get("date") or r.get("year") or ""),
+    ("Year", False, lambda r: r.get("year") or ""),
+    ("Source", False, lambda r: r.get("journal", "")),
+    ("Link", False, lambda r: r.get("url", "")),
+    ("DOI", True, lambda r: r.get("doi", "")),
+    ("Publication type", False, lambda r: "; ".join(r.get("pub_types") or [])),
+    ("Subjects", False, lambda r: "; ".join(r.get("subjects") or [])),
+    ("Abstract", False, lambda r: r.get("abstract", "")),
+    ("Cited by", True, lambda r: "" if r.get("cited_by") is None else r["cited_by"]),
+]
+
+
+def records_csv(entry: dict, labels: dict[str, str]) -> tuple[str, int]:
+    """The records run or analysis `entry` read for its full strategy, as CSV text (with a byte order mark,
+    so Excel reads accents correctly), and how many there are. `labels` names each database."""
+    if entry.get("kind") not in ("run", "analyze"):
+        raise UIError(f"#{entry.get('n')} is not a run or an analysis")
+    full = next(q for q in entry.get("queries") or entry.get("rows") if q["role"] == "full")
+    rows = [(name, r) for name, result in full["by"].items() for r in result.get("records") or []]
+    columns = [(title, value) for title, optional, value in CSV_COLUMNS
+               if not optional or any(value(r) not in ("", None) for _, r in rows)]
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow([title for title, _ in columns] + ["Database", "Record ID"])
+    for name, r in rows:
+        writer.writerow([value(r) for _, value in columns] + [labels.get(name, name), r.get("id", "")])
+    return "﻿" + out.getvalue(), len(rows)
 
 
 # -------------------------------------------------------------------- log
@@ -1155,6 +1193,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(session.view())
             elif match := re.fullmatch(r"/api/entry/(\d+)", url.path):
                 self._json(session.log.get(int(match.group(1))))
+            elif match := re.fullmatch(r"/api/export/(\d+)", url.path):
+                labels = {name: cls.label for name, cls in BACKENDS.items()}
+                text, _ = records_csv(session.log.get(int(match.group(1))), labels)
+                self._send(200, text.encode("utf-8"), "text/csv; charset=utf-8")
             elif url.path == "/api/sessions":
                 files = sorted(session.log.path.parent.glob("*.jsonl"), reverse=True)
                 self._json([{"file": f.name, "current": f == session.log.path, **session_summary(f)} for f in files])

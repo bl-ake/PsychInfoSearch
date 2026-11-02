@@ -99,6 +99,9 @@ def _parse_article(article: ET.Element) -> Record:
     pub_date = art.find("Journal/JournalIssue/PubDate")
     year_text = _text(pub_date.find("Year")) or _text(pub_date.find("MedlineDate")) if pub_date is not None else ""
     year = re.search(r"\d{4}", year_text)
+    date = year_text  # "2021 Mar 4", "2021 Mar", "2021" or a MedlineDate such as "2020 Nov-Dec"
+    if pub_date is not None and pub_date.find("Year") is not None:
+        date = " ".join(filter(None, [_text(pub_date.find(p)) for p in ("Year", "Month", "Day")]))
 
     doi = ""
     for article_id in article.findall("PubmedData/ArticleIdList/ArticleId"):
@@ -114,6 +117,7 @@ def _parse_article(article: ET.Element) -> Record:
         title=_text(art.find("ArticleTitle")),
         authors=authors,
         year=int(year.group()) if year else None,
+        date=date,
         journal=_text(art.find("Journal/Title")),
         doi=doi,
         url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",

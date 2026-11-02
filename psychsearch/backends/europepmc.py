@@ -74,6 +74,7 @@ def _parse(hit: dict) -> Record:
         title=re.sub(r"<[^>]+>", "", hit.get("title", "")),
         authors=[a.strip(" .") for a in hit.get("authorString", "").split(",") if a.strip(" .")],
         year=int(year) if year.isdigit() else None,
+        date=hit.get("firstPublicationDate") or year,
         journal=journal or book.get("publisher", ""),
         doi=hit.get("doi", ""),
         url=f"https://europepmc.org/article/{hit.get('source')}/{hit.get('id')}",

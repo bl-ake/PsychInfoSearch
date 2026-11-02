@@ -232,6 +232,8 @@ def _parse(raw: dict) -> Record:
         if name:
             authors.append(name)
     year = _first(container.get("Dates"), "Y")
+    dates = container.get("Dates") or [{}]
+    date = "-".join(p for p in (dates[0].get("Y", ""), dates[0].get("M", ""), dates[0].get("D", "")) if p) if year else ""
     doi = next((i.get("Value", "") for i in entity.get("Identifiers") or [] if i.get("Type") == "doi"), "")
     subjects = [s["SubjectFull"] for s in entity.get("Subjects") or [] if s.get("SubjectFull")]
 
@@ -240,6 +242,7 @@ def _parse(raw: dict) -> Record:
         title=_first(entity.get("Titles"), "TitleFull") or " ".join(items.get("Title", [])),
         authors=authors,
         year=int(year) if year.isdigit() else None,
+        date=date,
         journal=_first(container.get("Titles"), "TitleFull"),
         doi=doi,
         url=raw.get("PLink", ""),
